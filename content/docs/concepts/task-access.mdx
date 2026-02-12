@@ -1,0 +1,109 @@
+---
+title: Task Access Model
+description: How task access control works in Buildd
+---
+
+# Task Access Model
+
+## Overview
+
+Separate **Dashboard Users** (task creators/managers) from **Workers** (task executors). Workers can be machines (tokens) or humans (contractors), and don't need dashboard access.
+
+## Roles
+
+### Dashboard Users
+- Authenticate via Google or GitHub OAuth
+- Create and manage workspaces
+- Create and prioritize tasks
+- View worker progress and results
+- Manage billing and settings
+
+### Workers
+Two types, same interface:
+
+| | Machine Workers | Human Workers |
+|---|---|---|
+| Identity | API token (`bld_xxx`) | GitHub account |
+| Auth | Bearer token | GitHub OAuth (worker flow) |
+| Repo access | Via deploy keys or GitHub App | Native GitHub permissions |
+| Interface | MCP server / API | Worker portal (future) |
+| Use case | CI/CD, Claude Code, automation | Contractors, freelancers |
+
+## Data Model
+
+```sql
+-- Dashboard users (existing auth)
+users
+  id              uuid primary key
+  email           text unique
+  name            text
+  role            text            -- 'admin' | 'member'
+
+-- Worker accounts (machines)
+accounts
+  id              uuid primary key
+  name            text
+  type            text            -- 'service' | 'action' | 'user'
+  apiKey          text unique     -- bld_xxx
+
+-- Human workers (future)
+human_workers
+  id              uuid primary key
+  githubId        bigint unique
+  githubUsername  text
+  status          text            -- 'active' | 'suspended'
+```
+
+## Access Control
+
+### Workspace Access
+
+```
+workspaces.accessMode: 'open' | 'restricted'
+
+For machines (tokens):
+  - open: any token can claim
+  - restricted: check accountWorkspaces.canClaim
+
+For humans:
+  - Check GitHub repo access via API
+  - Or explicit humanWorkerWorkspaces permission
+```
+
+### Task Visibility
+
+```
+Dashboard users:  See all tasks in their workspaces
+Machine workers:  See tasks from permitted workspaces (via MCP/API)
+Human workers:    See only tasks they can claim (workspace + repo access)
+```
+
+## Flows
+
+### Machine Worker Flow
+
+```
+1. Token created in dashboard
+2. Token linked to workspace (if restricted)
+3. Machine calls claim API with token
+4. Machine executes task
+5. Machine reports completion
+```
+
+### Human Worker Flow (Future)
+
+```
+1. Contractor receives invite link
+2. Contractor authenticates with GitHub
+3. System checks GitHub permissions for workspace repo
+4. Contractor sees available tasks
+5. Contractor claims task → creates branch
+6. Contractor works and submits PR
+```
+
+## Migration Path
+
+1. **Phase 1** (current): Machine workers only, workspace accessMode
+2. **Phase 2**: Add human_workers table, GitHub OAuth for workers
+3. **Phase 3**: Worker portal UI, invite system
+4. **Phase 4**: Task types, payment integration

@@ -1,0 +1,99 @@
+---
+title: Local UI Setup
+description: Run tasks locally with a standalone worker that connects to buildd.dev
+---
+
+# Local UI Setup
+
+The Local UI is a standalone worker runner that connects to buildd.dev. It runs on your machine (or a remote workspace like Coder) and executes tasks using the Claude Agent SDK.
+
+## Prerequisites
+
+- [Bun](https://bun.sh) runtime
+- A buildd.dev account with an API key
+
+## Quick Start
+
+```bash
+cd apps/local-ui
+bun install
+bun start
+```
+
+On first launch, open `http://localhost:8766` in your browser to complete setup (API key, workspace linking).
+
+## Configuration
+
+All config is stored in `~/.buildd/config.json`. The file is created automatically during setup.
+
+### Config Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `apiKey` | string | — | Buildd API key (`bld_xxx`) |
+| `localUiUrl` | string | auto-detected | Public URL for this instance (see [URL Resolution](#url-resolution)) |
+| `maxConcurrent` | number | `3` | Max concurrent workers |
+| `model` | string | `claude-opus-4-6` | Claude model to use |
+| `acceptRemoteTasks` | boolean | `true` | Accept task assignments from the dashboard |
+| `bypassPermissions` | boolean | `false` | Skip permission prompts (dangerous commands still blocked) |
+| `builddServer` | string | `https://buildd.dev` | Server URL override |
+| `openBrowser` | boolean | — | Auto-open browser on startup |
+| `llmProvider` | string | `anthropic` | LLM provider: `anthropic` or `openrouter` |
+| `llmApiKey` | string | — | Provider API key (for OpenRouter, etc.) |
+| `llmBaseUrl` | string | — | Custom LLM base URL |
+| `pusherKey` | string | — | Pusher key for realtime events |
+| `pusherCluster` | string | — | Pusher cluster (e.g. `us2`) |
+
+### Environment Variables
+
+Env vars override config file values. Useful for CI/Docker.
+
+| Variable | Overrides |
+|----------|-----------|
+| `BUILDD_API_KEY` | `apiKey` |
+| `LOCAL_UI_URL` | `localUiUrl` |
+| `PORT` | Listen port (default: `8766`) |
+| `PROJECTS_ROOT` | Comma-separated project directories (e.g. `~/projects,~/work`) |
+| `MAX_CONCURRENT` | `maxConcurrent` |
+| `MODEL` | `model` |
+| `BUILDD_SERVER` | `builddServer` |
+| `BUILDD_CONFIG` | Config file path (default: `~/.buildd/config.json`) |
+| `LLM_PROVIDER` | `llmProvider` |
+| `LLM_API_KEY` | `llmApiKey` |
+| `LLM_BASE_URL` | `llmBaseUrl` |
+
+## URL Resolution
+
+The `localUiUrl` determines how the buildd.dev dashboard links back to this instance (the "Open" and "Open Terminal" buttons). It's resolved once at startup in this order:
+
+1. `LOCAL_UI_URL` env var (highest priority)
+2. `localUiUrl` in `~/.buildd/config.json`
+3. Tailscale auto-detect — runs `tailscale ip -4` and uses the IPv4 address
+4. `http://localhost:8766` (fallback)
+
+### Remote Workspaces (Coder, SSH, etc.)
+
+If you're running local-ui on a remote machine that's accessible via Tailscale or another network, set the URL explicitly so dashboard links work:
+
+```json
+// ~/.buildd/config.json on the remote machine
+{
+  "localUiUrl": "http://<tailscale-ip>:8766"
+}
+```
+
+Or via env var:
+
+```bash
+LOCAL_UI_URL=http://<tailscale-ip>:8766 bun start
+```
+
+If Tailscale CLI is installed on the machine, the IP is auto-detected and you don't need to set anything.
+
+## How It Works
+
+1. Local UI starts and sends a **heartbeat** to buildd.dev every 5 minutes
+2. The dashboard shows connected instances under "Connected Agents"
+3. When a task is created and assigned, the local-ui claims it and spawns a Claude Agent SDK session
+4. Progress is reported back to buildd.dev in real-time via API + Pusher
+5. The dashboard can link directly to the local-ui for live terminal output

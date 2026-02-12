@@ -1,0 +1,193 @@
+---
+title: Self-Hosting Buildd
+description: Complete guide for self-hosting Buildd on your own infrastructure
+---
+
+# Self-Hosting Buildd
+
+Complete guide for self-hosting Buildd on your own infrastructure.
+
+## Overview
+
+Buildd consists of:
+- **Web server** (Next.js) - Dashboard, API, and authentication
+- **Database** (PostgreSQL) - Neon or any Postgres instance
+- **Cron trigger** (External) - Calls `/api/cron/schedules` every minute
+- **Workers** (External) - Run on laptops, VMs, or CI runners
+
+## Prerequisites
+
+- Node.js 18+ or Bun
+- PostgreSQL database (Neon, local, or Docker)
+- Domain name (optional, but recommended)
+- SSL certificate (Let's Encrypt recommended)
+
+## Quick Start with Docker Compose
+
+### 1. Clone and Configure
+
+```bash
+git clone https://github.com/yourusername/buildd.git
+cd buildd
+cp .env.example .env.local
+```
+
+### 2. Edit `.env.local`
+
+```bash
+# Database
+DATABASE_URL=postgresql://postgres:postgres@db:5432/buildd
+
+# Auth (generate with: openssl rand -base64 32)
+AUTH_SECRET=your-secret-here
+AUTH_URL=https://your-domain.com
+
+# Google OAuth
+GOOGLE_CLIENT_ID=your-client-id
+GOOGLE_CLIENT_SECRET=your-client-secret
+
+# Cron (generate with: openssl rand -base64 32)
+CRON_SECRET=your-cron-secret
+
+# Pusher (optional - for realtime updates)
+PUSHER_APP_ID=
+PUSHER_KEY=
+PUSHER_SECRET=
+PUSHER_CLUSTER=us2
+NEXT_PUBLIC_PUSHER_KEY=
+NEXT_PUBLIC_PUSHER_CLUSTER=us2
+```
+
+### 3. Create `docker-compose.yml`
+
+```yaml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: buildd
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/buildd
+      - AUTH_SECRET=${AUTH_SECRET}
+      - AUTH_URL=${AUTH_URL}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - CRON_SECRET=${CRON_SECRET}
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+```
+
+### 4. Start Services
+
+```bash
+docker-compose up -d
+```
+
+Access at `http://localhost:3000`
+
+## Database Setup
+
+### Option 1: Neon (Recommended)
+
+1. Sign up at [neon.tech](https://neon.tech)
+2. Create database
+3. Copy connection string to `DATABASE_URL`
+4. Migrations run automatically on deploy
+
+### Option 2: Local PostgreSQL
+
+```bash
+# Install PostgreSQL
+sudo apt install postgresql postgresql-contrib
+
+# Create database
+sudo -u postgres createdb buildd
+
+# Run migrations
+cd packages/core
+bun run db:migrate
+```
+
+## Alternative Cron Trigger Services
+
+If you don't want to manage cron yourself:
+
+### Option 1: cron-job.org (Free)
+
+1. Sign up at [cron-job.org](https://cron-job.org)
+2. Create new job:
+   - **URL**: `https://your-domain.com/api/cron/schedules`
+   - **Interval**: Every minute (`* * * * *`)
+   - **HTTP Method**: GET
+   - **Headers**: `Authorization: Bearer YOUR_CRON_SECRET`
+
+### Option 2: System Crontab
+
+```bash
+crontab -e
+```
+
+Add entry:
+```bash
+* * * * * curl -s -H "Authorization: Bearer YOUR_CRON_SECRET" http://localhost:3000/api/cron/schedules
+```
+
+## Environment Variables Reference
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `AUTH_SECRET` | Yes | NextAuth secret (32+ random chars) |
+| `AUTH_URL` | Yes | Your site URL (e.g., https://buildd.example.com) |
+| `GOOGLE_CLIENT_ID` | Yes | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth secret |
+| `CRON_SECRET` | Yes* | Secret for `/api/cron/schedules` endpoint |
+| `PUSHER_APP_ID` | No | Pusher app ID (enables realtime updates) |
+| `PUSHER_KEY` | No | Pusher key |
+| `PUSHER_SECRET` | No | Pusher secret |
+
+\* Required only if using task schedules feature
+
+## Troubleshooting
+
+### Migrations won't run
+
+```bash
+# Check database connection
+psql $DATABASE_URL -c "SELECT 1"
+
+# Run migrations manually
+cd packages/core
+bun run db:migrate
+```
+
+### Schedules not triggering
+
+1. Check `CRON_SECRET` is set correctly
+2. Verify cron job is running: `curl -H "Authorization: Bearer SECRET" URL`
+3. Ensure schedule is `enabled=true`
+
+## Security Checklist
+
+- [ ] Use strong `AUTH_SECRET` and `CRON_SECRET` (32+ chars)
+- [ ] Enable SSL/TLS with valid certificate
+- [ ] Use firewall to restrict database access
+- [ ] Keep dependencies updated: `bun update`
+- [ ] Monitor logs for unauthorized access attempts

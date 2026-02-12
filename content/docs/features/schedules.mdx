@@ -1,0 +1,88 @@
+---
+title: Task Schedules
+description: Create recurring tasks that run on a schedule using cron expressions
+---
+
+# Task Schedules
+
+Create recurring tasks that run on a schedule using cron expressions.
+
+## Overview
+
+Task schedules allow you to automate recurring work without manually creating tasks. Common use cases:
+
+- **Daily reports** - Generate metrics every morning
+- **Periodic maintenance** - Run cleanup tasks weekly
+- **Monitoring checks** - Test APIs every hour
+- **Data syncs** - Pull external data on a schedule
+
+## Creating a Schedule
+
+### Via Dashboard
+
+1. Navigate to your workspace
+2. Click **"New Task"** button
+3. Toggle **"Recurring"** at the top
+4. Enter:
+   - **Schedule name** - Descriptive name (e.g., "Daily metrics report")
+   - **Cron expression** - When to run (e.g., `0 9 * * *` for 9am daily)
+   - **Timezone** - Your timezone (defaults to UTC)
+   - **Task template** - The task details (title, description, etc.)
+5. Click **"Create Schedule"**
+
+### Via API
+
+```bash
+curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/schedules \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Daily metrics report",
+    "cronExpression": "0 9 * * *",
+    "timezone": "America/Los_Angeles",
+    "taskTemplate": {
+      "title": "Generate metrics report",
+      "description": "Pull metrics from DB and post to Slack",
+      "priority": 5
+    }
+  }'
+```
+
+## Cron Expression Syntax
+
+Buildd uses standard cron syntax: `minute hour day month weekday`
+
+| Field | Values | Special |
+|-------|--------|---------|
+| Minute | 0-59 | `*` (every), `*/5` (every 5) |
+| Hour | 0-23 | `*` (every), `*/2` (every 2) |
+| Day | 1-31 | `*` (every), `1,15` (1st and 15th) |
+| Month | 1-12 | `*` (every), `1-6` (Jan-Jun) |
+| Weekday | 0-7 | `*` (every), `1-5` (Mon-Fri), 0=7=Sun |
+
+### Common Examples
+
+```bash
+# Every minute
+* * * * *
+
+# Every hour at :00
+0 * * * *
+
+# Every day at 9am UTC
+0 9 * * *
+
+# Every Monday at 8am
+0 8 * * 1
+
+# Every weekday (Mon-Fri) at 6pm
+0 18 * * 1-5
+
+# Every 15 minutes
+*/15 * * * *
+
+# First day of every month at midnight
+0 0 1 * *
+```
+
+For more information and troubleshooting, see the [deployment guide](/docs/deployment/self-hosting#alternative-cron-trigger-services).
