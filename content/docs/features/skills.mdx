@@ -1,135 +1,314 @@
 ---
 title: Skills
-description: Reusable instruction templates that standardize how agents approach tasks
+description: Workspace-scoped skill registry that delivers SKILL.md packages to agents at task execution time
 ---
 
 # Skills
 
-Reusable instruction templates that standardize how agents approach tasks. Skills are verified by SHA-256 hash to guarantee every agent runs the exact same instructions.
+Skills are reusable instruction packages that give agents domain-specific expertise. Each skill is a `SKILL.md` file — the [open standard](https://docs.anthropic.com/en/docs/agents-and-tools/agent-skills) adopted by Anthropic, OpenAI, and the broader agent ecosystem — stored in your workspace registry and delivered to agents automatically when they claim tasks.
 
-## Overview
+Think of skills as npm packages for agent knowledge: structured, versioned, composable. Buildd handles the registry and delivery so you don't need to manage files across machines.
 
-A skill is a directory containing a `SKILL.md` file with structured instructions for agents. Examples:
+## Why Skills
 
-- **ui-audit** - Systematic UI review against design specs
-- **code-review** - Security-focused code review with checklist
-- **db-migration** - Safe migration workflow with rollback steps
+Without skills, agents rely on whatever context is in the task description. This works for simple tasks but breaks down for anything that requires organizational knowledge — deploy policies, code review standards, auth patterns, testing conventions.
 
-Skills live on your machine at `~/.buildd/skills/` and are automatically symlinked to `~/.claude/skills/` for native Claude Code discovery. The server stores only a hash registry — never the content itself.
+Skills formalize this knowledge into reusable packages:
 
-## How It Works
+- **Consistency** — Every agent follows the same deploy runbook, review checklist, or migration workflow
+- **Composability** — Attach multiple skills to a single task (e.g., `code-review` + `security-audit`)
+- **Progressive disclosure** — Agents load skill content on-demand, keeping token usage efficient
+- **Cross-agent compatibility** — The SKILL.md format works with Claude Code, Codex, Cursor, Windsurf, and 30+ other agents
 
-1. **Install** a skill locally (`buildd skill install`)
-2. **Register** its hash with the server (`buildd skill register`)
-3. **Create a task** referencing the skill by slug
-4. **Worker picks up the task**, verifies local hash matches server hash, then injects the skill instructions into the agent prompt
+## The SKILL.md Format
 
-If the hash doesn't match, the worker warns that the skill is outdated. This prevents version drift across machines.
-
-## Installing Skills
-
-```bash
-# From GitHub
-buildd skill install github:acme/ui-audit
-buildd skill install github:acme/skills/code-review@v2
-buildd skill install acme/ui-audit              # shorthand
-
-# From local directory
-buildd skill install ./my-skills/db-migration
-
-# From server registry (by slug)
-buildd skill install ui-audit
-```
-
-Install downloads the skill to `~/.buildd/skills/<slug>/` and creates a symlink at `~/.claude/skills/<slug>` so Claude Code can discover it natively.
-
-## Development Workflow
-
-When authoring skills, use `link` instead of `install` to avoid re-installing after every edit:
-
-```bash
-# Symlink a skill from your repo into ~/.buildd/skills/
-buildd skill link ./my-repo/skills/ui-audit
-
-# Edits to ./my-repo/skills/ui-audit/SKILL.md are immediately visible
-# No reinstall needed
-
-# When ready to publish the current version:
-buildd skill register ui-audit
-
-# Remove the symlink
-buildd skill unlink ui-audit
-```
-
-## Registering Skills
-
-Registration pushes the current SHA-256 hash to the server. Workers verify against this hash.
-
-```bash
-buildd skill register ui-audit
-# Registered "ui-audit" with server (hash: a1b2c3d4e5f6)
-```
-
-Register after:
-- Installing a new skill
-- Updating a skill's content
-- Finalizing changes during development
-
-## Listing Skills
-
-```bash
-buildd skill list
-```
-
-Shows all local and server-registered skills with sync status:
-
-```
-Skills
-
-  ui-audit         ✓ synced    a1b2c3d4e5f6
-    Systematic UI review against design specifications
-    github:acme/ui-audit
-
-  code-review      ⚠ hash mismatch    b2c3d4e5f6a1
-    → /Users/you/repo/skills/code-review
-    Security-focused code review checklist
-
-  db-migration     local only    c3d4e5f6a1b2
-    Safe migration workflow with rollback
-```
-
-## Writing a SKILL.md
-
-Skills follow the [Agent Skills open standard](https://agentskills.io). A `SKILL.md` file with optional YAML frontmatter:
+Skills follow the SKILL.md standard. A skill is a directory containing a `SKILL.md` file with YAML frontmatter and markdown instructions:
 
 ```markdown
 ---
-name: ui-audit
-description: Systematic UI review against design specifications
+name: deploy-policy
+description: Production deployment workflow with rollback steps and approval gates
 ---
 
-# UI Audit
+# Deploy Policy
 
-You are performing a systematic UI audit. Follow these steps:
+## Pre-deploy Checklist
+1. All tests pass on the target branch
+2. Migration files committed and reviewed
+3. Environment variables verified in staging
 
-1. Screenshot every page in the flow
-2. Compare against the design spec (attached or linked)
-3. Flag discrepancies with severity: critical, major, minor
-4. Suggest fixes with code snippets where possible
+## Deploy Steps
+1. Create a release branch from `main`
+2. Run `bun run build` — verify zero errors
+3. Push to staging, verify smoke tests
+4. Open PR to `production` branch
+5. Wait for approval from #deploys channel
 
-## Checklist
-- [ ] Layout matches design
-- [ ] Colors and typography match
-- [ ] Responsive breakpoints work
-- [ ] Interactive states (hover, focus, disabled)
-- [ ] Accessibility (contrast, labels, keyboard nav)
+## Rollback
+If post-deploy monitoring shows errors:
+1. Revert the merge commit: `git revert HEAD`
+2. Push directly to production branch
+3. Post incident summary to #deploys
 ```
 
-The `name` field in frontmatter determines the slug. If omitted, the directory name is used.
+**Required fields**:
+- `name` — Lowercase letters, numbers, and hyphens. Max 64 characters. Determines the slug.
+- `description` — What the skill does and when to use it. Max 1024 characters.
 
-## Using Skills in Tasks
+### Three-tier Loading
 
-When creating a task via the API, reference a skill by slug:
+Skills use progressive disclosure to stay token-efficient:
+
+| Tier | When Loaded | Token Cost | Content |
+|------|------------|------------|---------|
+| **Metadata** | Always (at startup) | ~100 tokens | `name` and `description` from frontmatter |
+| **Instructions** | When skill is triggered | Under 5k tokens | SKILL.md body — workflows, checklists, guidance |
+| **Resources** | As needed | Minimal | Reference files, scripts, schemas bundled with the skill |
+
+A workspace with 50 skills burns ~5k tokens on metadata. The agent loads 2-3 relevant skills per task. This scales far better than loading wiki pages into every prompt.
+
+### Bundling Additional Files
+
+Skills can include reference files beyond the main SKILL.md:
+
+```
+code-review/
+├── SKILL.md              # Main instructions
+├── SECURITY.md           # Security-specific checklist
+├── EXAMPLES.md           # Good/bad code examples
+└── schemas/
+    └── pr-template.md    # PR description template
+```
+
+Reference files are stored in the skill's `metadata.referenceFiles` field and delivered alongside the SKILL.md when agents claim tasks.
+
+## Creating Skills
+
+### From the Dashboard
+
+1. Navigate to your workspace
+2. Click **Skills** in the header
+3. Click **Register Skill**
+4. Fill in:
+   - **Name** — Human-readable name (e.g., "Code Review Standards")
+   - **Slug** — Auto-generated from name, editable (e.g., `code-review-standards`)
+   - **Description** — When the agent should use this skill
+   - **SKILL.md Content** — The full instructions
+5. Click **Register Skill**
+
+Skills appear in the workspace skills list with enable/disable toggles and expandable content previews.
+
+### From Claude Code (MCP)
+
+With the Buildd MCP server connected, ask your agent to register a skill directly:
+
+```
+> Register a skill called "db-migration" with instructions for safe database migrations
+```
+
+The agent calls `buildd_register_skill` behind the scenes. You can also browse existing skills:
+
+```
+> What skills are available in this workspace?
+```
+
+The agent calls `buildd_list_skills` and shows you what's registered.
+
+## Syncing Local Skills
+
+If you install community skills locally via `npx skills add <slug>` or `npx openskills install github:org/repo`, Buildd can discover those SKILL.md files on disk and register them to your workspace.
+
+### How It Works
+
+1. **Install skills locally** — Skills land in `.claude/skills/{slug}/SKILL.md` in your project directory
+2. **Open Local UI** — Navigate to the workspace management modal (click **Manage** next to the workspace selector)
+3. **Scan** — Click **Scan .claude/skills/** in the Local Skills section at the bottom
+4. **Review** — Each discovered skill shows its status:
+   - **New** (green) — Not yet registered in the workspace
+   - **Modified** (yellow) — Content differs from the registered version
+   - **Registered** (gray) — Already registered with matching content
+5. **Register** — Click **Register** on any new or modified skill. It lands in the workspace registry as **disabled by default** (pending admin review)
+6. **Admin enables** — From the dashboard Skills page, toggle the skill on after reviewing its content. Skills with `source: local_scan` and `enabled: false` show a **Pending Review** badge
+
+### Safety Model
+
+Scanned skills register as disabled to prevent any worker from injecting instructions into the shared workspace skill registry. Only workspace admins can enable skills from the dashboard — the existing enable/disable toggle handles this without any new approval workflow.
+
+## Attaching Skills to Tasks
+
+When creating a task, attach skills by their slugs. The agent receives the skill instructions automatically when it claims the task.
+
+### From the Dashboard
+
+1. Click **New Task** from your workspace
+2. Select a workspace — available skills load automatically
+3. In the **Skills** section, click skill chips to select which skills this task needs
+4. Only enabled skills in the workspace appear as options
+5. Create the task — skills are stored with it
+
+### From Claude Code (MCP)
+
+```
+> Create a task "Review auth module" with skills code-review and security-audit
+```
+
+The `buildd_create_task` tool accepts a `skills` array parameter. The server validates that all referenced slugs exist and are enabled.
+
+### In Scheduled Tasks
+
+Skills carry through to scheduled tasks. When setting up a recurring schedule from the dashboard, select skills in the task template — every task created from that schedule automatically includes them.
+
+## How Delivery Works
+
+When a worker claims a task with skills attached, Buildd resolves the skill content and delivers it automatically:
+
+1. **Worker claims task** — Local UI polls for available work
+2. **Server resolves skills** — Matches skill slugs to the registry, bundles the full SKILL.md content and any reference files
+3. **Local UI writes files** — Skill content is written to `.claude/skills/{slug}/SKILL.md` in the project directory before the agent starts
+4. **Agent discovers skills** — Claude Code natively discovers `.claude/skills/` directories and loads them using progressive disclosure
+5. **Cleanup** — Skill files are removed from the project directory after the agent session ends
+
+```
+project/
+└── .claude/
+    └── skills/
+        ├── code-review/
+        │   └── SKILL.md        ← Written before agent starts
+        └── security-audit/
+            ├── SKILL.md        ← Written before agent starts
+            └── CHECKLIST.md    ← Reference file from metadata
+```
+
+This file-based delivery follows the Claude Code convention. The agent's prompt also includes a context section listing installed skills and their paths, so the agent knows what expertise is available.
+
+## Managing Skills
+
+### Browsing and Editing
+
+Navigate to your workspace and click **Skills** in the header. From the skills list you can:
+
+- **Expand** any skill to preview its SKILL.md content
+- **Toggle** skills on or off — disabled skills can't be attached to new tasks
+- **Delete** skills you no longer need
+
+To update a skill's content, use the API `PATCH` endpoint or re-register it via MCP.
+
+## Ecosystem Compatibility
+
+The SKILL.md format is the converging standard across the agent ecosystem. Skills created in Buildd are compatible with:
+
+- **Claude Code** — Native `.claude/skills/` directory discovery
+- **Claude API** — Skills API (`/v1/skills` endpoints) with code execution
+- **Claude Agent SDK** — Filesystem-based auto-discovery
+- **Codex (OpenAI)** — Same SKILL.md format
+- **Cursor, Windsurf, Aider, Goose** — All support SKILL.md via community tooling
+
+### Using Community Skills
+
+The open skills ecosystem has thousands of ready-to-use skills. You can bring them into Buildd by copying their SKILL.md content into your workspace registry via the dashboard or MCP.
+
+Find skills at:
+
+- [skills.sh](https://skills.sh) — Curated directory with leaderboard, 55,000+ installs tracked
+- [GitHub: anthropics/skills](https://github.com/anthropics/skills) — Anthropic's official skill packages
+- [GitHub: openai/skills](https://github.com/openai/skills) — OpenAI's official skill packages
+- [SkillsMP](https://skillsmp.com) — 160k+ skills indexed from GitHub with security scanning
+
+You can also install community skills locally using CLI tools like `npx skills add` or `npx openskills install`, then register them in Buildd to share across your team.
+
+### Git-Based Skill Development
+
+For teams, the recommended workflow is a private skills repo:
+
+```
+your-org/skills/
+├── skills/
+│   ├── deploy-policy/SKILL.md
+│   ├── code-review/SKILL.md
+│   └── service-auth/SKILL.md
+├── AGENTS.md                    ← Universal agent discovery
+└── README.md
+```
+
+You get versioning (git), review workflow (PRs), and access control (repo permissions). Register skills from this repo into your Buildd workspace to get centralized delivery and task integration.
+
+## Writing Effective Skills
+
+A few principles for skills that actually improve agent success rates:
+
+1. **Be prescriptive, not descriptive** — "Run `bun test` before committing" beats "tests should pass"
+2. **Include concrete examples** — Show the exact output format, file structure, or code pattern you expect
+3. **Add checklists** — Agents follow checklists reliably. Use `- [ ]` format.
+4. **Specify failure modes** — "If the migration fails, roll back with `git revert HEAD`" prevents the agent from guessing
+5. **Keep it under 5k tokens** — If your skill is longer, split into a main SKILL.md and reference files
+6. **Test empirically** — Give an agent nothing but your skill and a task. Did it succeed? If not, the doc is the bug.
+
+## API Reference
+
+For programmatic access, skills are managed through REST endpoints. Authentication works with both session cookies (dashboard) and API keys (`Bearer bld_xxx`).
+
+### Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/workspaces/{id}/skills` | List skills. `?enabled=true` to filter. |
+| `POST` | `/api/workspaces/{id}/skills` | Create a skill. Requires `name` and `content`. |
+| `GET` | `/api/workspaces/{id}/skills/{skillId}` | Get a single skill with full content. |
+| `PATCH` | `/api/workspaces/{id}/skills/{skillId}` | Update skill fields. |
+| `DELETE` | `/api/workspaces/{id}/skills/{skillId}` | Delete a skill. |
+
+### Skill Object
+
+```json
+{
+  "id": "uuid",
+  "workspaceId": "uuid",
+  "slug": "code-review",
+  "name": "Code Review Standards",
+  "description": "Security-focused code review checklist",
+  "content": "# Code Review\n\n...",
+  "source": "manual",
+  "metadata": {
+    "version": "1.0",
+    "author": "platform-team",
+    "referenceFiles": {}
+  },
+  "enabled": true,
+  "createdAt": "2026-02-13T00:00:00Z",
+  "updatedAt": "2026-02-13T00:00:00Z"
+}
+```
+
+### Source Types
+
+| Source | Description |
+|--------|-------------|
+| `manual` | Created via dashboard, API, or MCP (default) |
+| `git` | Imported from a git repository |
+| `npm` | Installed from an npm package |
+| `local_scan` | Discovered from local `.claude/skills/` directory |
+
+### MCP Tools
+
+| Tool | Access | Description |
+|------|--------|-------------|
+| `buildd_list_skills` | All users | List enabled skills in workspace |
+| `buildd_register_skill` | Admin | Create a new skill |
+| `buildd_create_task` | All users | Accepts `skills` array parameter |
+
+### Creating a Skill (API)
+
+```bash
+curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/skills \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Code Review Standards",
+    "content": "# Code Review\n\n## Steps\n1. Check for injection vulnerabilities..."
+  }'
+```
+
+### Creating a Task with Skills (API)
 
 ```bash
 curl -X POST https://buildd.dev/api/tasks \
@@ -139,35 +318,6 @@ curl -X POST https://buildd.dev/api/tasks \
     "workspaceId": "ws_xxx",
     "title": "Audit checkout flow UI",
     "description": "Review the checkout pages against the latest Figma designs",
-    "skillRef": { "slug": "ui-audit" }
+    "skills": ["ui-audit", "accessibility-check"]
   }'
 ```
-
-The server resolves the skill, stores the hash in the task context, and workers verify it before execution.
-
-## File Layout
-
-```
-~/.buildd/
-  skills/
-    ui-audit/
-      SKILL.md          # Required
-      examples/         # Optional supporting files
-    code-review/
-      SKILL.md
-
-~/.claude/
-  skills/
-    ui-audit -> ~/.buildd/skills/ui-audit    # Auto-created symlink
-    code-review -> ~/.buildd/skills/code-review
-```
-
-## CLI Reference
-
-| Command | Description |
-|---------|-------------|
-| `buildd skill install <source>` | Download and register a skill |
-| `buildd skill link <path>` | Symlink a local skill for development |
-| `buildd skill unlink <slug>` | Remove a symlinked skill |
-| `buildd skill register <slug>` | Push current hash to server |
-| `buildd skill list` | Show installed and registered skills |
