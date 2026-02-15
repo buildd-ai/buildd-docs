@@ -7,51 +7,54 @@ description: How task access control works in Buildd
 
 ## Overview
 
-Separate **Dashboard Users** (task creators/managers) from **Workers** (task executors). Workers can be machines (tokens) or humans (contractors), and don't need dashboard access.
+Buildd separates **Dashboard Users** (task creators/managers) from **Workers** (task executors). All resources are scoped to [teams](/docs/features/teams), and access is controlled at the workspace level.
 
 ## Roles
 
 ### Dashboard Users
 - Authenticate via Google or GitHub OAuth
+- Belong to one or more teams with roles (owner, admin, member)
 - Create and manage workspaces
 - Create and prioritize tasks
 - View worker progress and results
 - Manage billing and settings
 
-### Workers
-Two types, same interface:
+### Workers (Machine)
+- Authenticate with API tokens (`bld_xxx`)
+- Claim and execute tasks via API or MCP server
+- Report progress and submit results
+- Scoped to a team via the account's `teamId`
 
-| | Machine Workers | Human Workers |
-|---|---|---|
-| Identity | API token (`bld_xxx`) | GitHub account |
-| Auth | Bearer token | GitHub OAuth (worker flow) |
-| Repo access | Via deploy keys or GitHub App | Native GitHub permissions |
-| Interface | MCP server / API | Worker portal (future) |
-| Use case | CI/CD, Claude Code, automation | Contractors, freelancers |
+Workers can have one of two account levels:
+
+| Level | Capabilities |
+|-------|-------------|
+| `worker` | List, claim, execute, and complete tasks. Search and save memory. |
+| `admin` | All worker capabilities + create tasks, reassign, send instructions, manage schedules and skills. |
 
 ## Data Model
 
 ```sql
--- Dashboard users (existing auth)
+-- Teams (top-level organization)
+teams
+  id, name, slug, plan
+
+-- Team membership
+team_members
+  teamId, userId, role (owner|admin|member)
+
+-- Dashboard users (OAuth)
 users
-  id              uuid primary key
-  email           text unique
-  name            text
-  role            text            -- 'admin' | 'member'
+  id, email, name, googleId, githubId
 
--- Worker accounts (machines)
+-- Worker accounts (API tokens)
 accounts
-  id              uuid primary key
-  name            text
-  type            text            -- 'service' | 'action' | 'user'
-  apiKey          text unique     -- bld_xxx
+  id, name, type, level (worker|admin),
+  apiKey, teamId, authType (api|oauth)
 
--- Human workers (future)
-human_workers
-  id              uuid primary key
-  githubId        bigint unique
-  githubUsername  text
-  status          text            -- 'active' | 'suspended'
+-- Workspace access control
+account_workspaces
+  accountId, workspaceId, canClaim, canCreate
 ```
 
 ## Access Control
@@ -61,49 +64,35 @@ human_workers
 ```
 workspaces.accessMode: 'open' | 'restricted'
 
-For machines (tokens):
-  - open: any token can claim
-  - restricted: check accountWorkspaces.canClaim
-
-For humans:
-  - Check GitHub repo access via API
-  - Or explicit humanWorkerWorkspaces permission
+open:       Any token in the team can claim tasks
+restricted: Only accounts in accountWorkspaces with canClaim=true
 ```
 
 ### Task Visibility
 
 ```
-Dashboard users:  See all tasks in their workspaces
-Machine workers:  See tasks from permitted workspaces (via MCP/API)
-Human workers:    See only tasks they can claim (workspace + repo access)
+Dashboard users:  See all tasks in their team's workspaces
+Machine workers:  See tasks from permitted workspaces (via API/MCP)
 ```
 
-## Flows
+### Auth Model
 
-### Machine Worker Flow
+Buildd supports two authentication types with different billing strategies:
+
+| Auth Type | Billing | Limits |
+|-----------|---------|--------|
+| `api` | Pay-per-token | `maxCostPerDay`, tracked via `totalCost` |
+| `oauth` | Seat-based | `maxConcurrentSessions`, tracked via `activeSessions` |
+
+Check the `authType` field on the account to determine which limits apply.
+
+## Worker Flow
 
 ```
-1. Token created in dashboard
-2. Token linked to workspace (if restricted)
-3. Machine calls claim API with token
-4. Machine executes task
-5. Machine reports completion
+1. API key created in dashboard (scoped to team)
+2. Account linked to workspace (if restricted)
+3. Worker calls claim API with token
+4. Worker executes task on assigned branch
+5. Worker reports progress at milestones
+6. Worker creates PR and marks task complete
 ```
-
-### Human Worker Flow (Future)
-
-```
-1. Contractor receives invite link
-2. Contractor authenticates with GitHub
-3. System checks GitHub permissions for workspace repo
-4. Contractor sees available tasks
-5. Contractor claims task → creates branch
-6. Contractor works and submits PR
-```
-
-## Migration Path
-
-1. **Phase 1** (current): Machine workers only, workspace accessMode
-2. **Phase 2**: Add human_workers table, GitHub OAuth for workers
-3. **Phase 3**: Worker portal UI, invite system
-4. **Phase 4**: Task types, payment integration

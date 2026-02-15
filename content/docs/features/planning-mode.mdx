@@ -1,0 +1,75 @@
+---
+title: Planning Mode
+description: Review agent implementation plans before they start coding
+---
+
+# Planning Mode
+
+Tasks can be created in **planning mode**, which requires the agent to submit an implementation plan for human review before writing any code.
+
+## Task Modes
+
+| Mode | Behavior |
+|------|----------|
+| `execution` | Default. Worker claims the task and starts implementing immediately. |
+| `planning` | Worker investigates the codebase, submits a plan, then waits for approval before implementing. |
+
+Set the mode when creating a task:
+
+```bash
+curl -X POST https://buildd.dev/api/tasks \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspaceId": "ws_xxx",
+    "title": "Refactor auth middleware",
+    "description": "Consolidate auth logic into shared middleware",
+    "mode": "planning"
+  }'
+```
+
+## Workflow
+
+### 1. Worker Claims Task
+
+The worker claims the planning-mode task like any other task. The task mode is included in the claim response.
+
+### 2. Worker Submits Plan
+
+Instead of implementing directly, the worker investigates the codebase and submits a plan:
+
+```bash
+# Via MCP server
+buildd_submit_plan \
+  --workerId "worker-id" \
+  --plan "## Plan\n\n1. Extract auth logic from route handlers\n2. Create shared middleware in lib/auth.ts\n3. Update all API routes to use middleware\n\n## Files to Change\n- src/app/api/*/route.ts\n- src/lib/auth.ts (new)"
+```
+
+The plan is submitted as markdown and stored on the worker. The worker status changes to `awaiting_plan_approval`.
+
+### 3. Admin Reviews Plan
+
+The task author (or any admin) reviews the plan in the dashboard. They can:
+
+- **Approve** — the worker proceeds with implementation
+- **Reject with feedback** — the worker receives the feedback and can revise the plan
+
+### 4. Worker Implements
+
+After approval, the worker implements according to the approved plan and completes the task normally.
+
+## Requesting Plans Mid-Task
+
+Admins can also request a plan from an already-running worker using the instruction system:
+
+```bash
+buildd_send_instruction \
+  --workerId "worker-id" \
+  --message '{"type": "request_plan", "message": "Please submit a plan before continuing"}'
+```
+
+The worker receives this as a structured instruction and pauses implementation to submit a plan.
+
+## Plan Expiration
+
+Plans that go unreviewed are automatically expired during cleanup. The `buildd_run_cleanup` tool handles this, marking workers with expired plan approvals as failed.

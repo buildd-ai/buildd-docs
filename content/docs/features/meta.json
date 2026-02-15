@@ -1,4 +1,14 @@
 {
   "title": "Features",
-  "pages": ["skills", "schedules"]
+  "pages": [
+    "skills",
+    "memory",
+    "schedules",
+    "planning-mode",
+    "worker-instructions",
+    "teams",
+    "github",
+    "workspace-config",
+    "mcp-server"
+  ]
 }

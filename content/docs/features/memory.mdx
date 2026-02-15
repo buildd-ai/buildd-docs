@@ -1,0 +1,101 @@
+---
+title: Workspace Memory
+description: Persistent knowledge base that helps agents learn from past work
+---
+
+# Workspace Memory
+
+A persistent knowledge base scoped to each workspace. Workers save observations as they encounter gotchas, make decisions, or discover patterns. Future workers search this memory before starting work, avoiding repeated mistakes and building on prior knowledge.
+
+## Observation Types
+
+Each observation has a type that describes what kind of knowledge it captures:
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| `gotcha` | Non-obvious bugs or traps | "neon-http driver doesn't support interactive transactions" |
+| `pattern` | Recurring code conventions | "All API routes use Bearer token auth via Authorization header" |
+| `decision` | Architectural choices with rationale | "Chose Pusher over SSE for realtime because of Vercel cold starts" |
+| `discovery` | Learned behaviors or undocumented APIs | "SDK v2 session API ignores settingSources option" |
+| `architecture` | System structure and data flow | "Workers run externally, API is coordination-only" |
+| `summary` | High-level summaries of completed work | "Refactored auth to support both API key and OAuth" |
+
+## How Workers Use Memory
+
+### Searching Before Work
+
+When a worker claims a task, relevant memory is automatically included in the claim response. Workers should also search manually before touching unfamiliar files:
+
+```bash
+# Via MCP server
+buildd_search_memory --query "drizzle schema migrations"
+buildd_search_memory --type gotcha --files "packages/core/db/schema.ts"
+```
+
+Search supports:
+- **Text query** — full-text search across titles and content
+- **Type filter** — narrow to a specific observation type
+- **File filter** — find observations referencing specific file paths
+- **Limit** — control result count (default: 10, max: 50)
+
+Search returns a compact index (id, title, type, files). Use `buildd_get_memory` with IDs to retrieve full content.
+
+### Saving Observations
+
+Save observations immediately when you encounter something noteworthy — don't wait until the end of a task:
+
+```bash
+buildd_save_memory \
+  --type gotcha \
+  --title "db.transaction() fails with neon-http driver" \
+  --content "Interactive transactions are not supported by the neon-http driver. Use atomic UPDATE...WHERE with .returning() for optimistic locking instead." \
+  --files '["packages/core/db/schema.ts"]' \
+  --concepts '["drizzle", "neon", "transactions"]'
+```
+
+Fields:
+- **type** (required) — one of the six observation types
+- **title** (required) — short, descriptive title
+- **content** (required) — full details with context
+- **files** (optional) — related file paths for searchability
+- **concepts** (optional) — tags for categorization
+
+## API Reference
+
+### Search Observations
+
+```
+GET /api/workspaces/{id}/observations/search?query=...&type=...&files=...&limit=10
+```
+
+### Get Full Details
+
+```
+GET /api/workspaces/{id}/observations/batch?ids=id1,id2,id3
+```
+
+### Create Observation
+
+```
+POST /api/workspaces/{id}/observations
+Content-Type: application/json
+
+{
+  "type": "gotcha",
+  "title": "Short title",
+  "content": "Full details...",
+  "files": ["path/to/file.ts"],
+  "concepts": ["tag1", "tag2"],
+  "workerId": "optional-worker-id"
+}
+```
+
+## MCP Server Usage
+
+The MCP server exposes memory through two tools:
+
+- **`buildd_search_memory`** — search for relevant observations before starting work
+- **`buildd_get_memory`** — retrieve full details for specific observation IDs
+- **`buildd_save_memory`** — save a new observation to workspace memory
+
+When a worker claims a task via `buildd_claim_task`, the server automatically searches memory using the task title and includes relevant observations in the response.

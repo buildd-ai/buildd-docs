@@ -321,3 +321,42 @@ curl -X POST https://buildd.dev/api/tasks \
     "skills": ["ui-audit", "accessibility-check"]
   }'
 ```
+
+## Team-Level Registry
+
+Skills are registered at the **team level** and shared across all workspaces in the team. When a worker lists skills, the result merges workspace-scoped skills with team-level skills (workspace skills take precedence by slug).
+
+### Workspace-Scoped Skills
+
+Each workspace can have its own skills with additional controls:
+
+- **Enabled/disabled** — toggle skills per workspace without deleting
+- **Origin tracking** — `scan` (auto-discovered), `manual` (user-created), or `promoted` (from team registry)
+- **Custom content** — workspace skills store their own copy of the SKILL.md content
+
+### Registering via MCP
+
+Admin-level accounts can register skills through the `buildd` MCP tool:
+
+```
+buildd({ action: "register_skill", params: { name: "UI Audit", content: "# UI Audit\n\n...", description: "Systematic UI review" } })
+```
+
+## Skills as Subagents
+
+Skills can be converted into subagents for the Claude Agent SDK's Task delegation feature. When `useSkillAgents` is enabled, each skill becomes a named agent that the main worker can delegate to:
+
+```typescript
+agents: {
+  'ui-audit': {
+    description: 'Systematic UI review against design specs',
+    prompt: '<full SKILL.md content>',
+    tools: ['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write'],
+    model: 'inherit',
+  }
+}
+```
+
+The main worker can then delegate specialized work via the `Task` tool rather than executing everything in its own context. This keeps context clean and allows parallel execution of independent skill work.
+
+This feature requires the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` environment variable.

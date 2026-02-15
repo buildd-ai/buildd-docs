@@ -1,0 +1,63 @@
+---
+title: Teams
+description: Multi-tenancy with team-scoped resources and role-based access
+---
+
+# Teams
+
+Teams are the top-level organizational unit in Buildd. All resources — workspaces, accounts, skills — are scoped to a team.
+
+## Roles
+
+| Role | Permissions |
+|------|-------------|
+| **Owner** | Full access. Manage billing, delete team, transfer ownership. |
+| **Admin** | Manage workspaces, accounts, skills, and team members. Invite new members. |
+| **Member** | View workspaces and tasks. Cannot manage team settings or invite members. |
+
+Every team has exactly one owner (the creator). Admins and members can be added via invitations.
+
+## Team Resources
+
+Resources are scoped to the team that owns them:
+
+- **Workspaces** — each workspace belongs to one team
+- **Accounts** (API keys) — created under a team, used by workers
+- **Skills** — team-level skill registry shared across all workspaces
+- **Invitations** — pending invites for new team members
+
+## Invitations
+
+Team admins and owners can invite new members by email:
+
+1. Admin sends invitation with a role (`admin` or `member`)
+2. Invitee receives a unique invitation token
+3. Invitee accepts the invitation to join the team
+4. Invitation expires if not accepted within the time limit
+
+Invitation statuses: `pending`, `accepted`, `expired`.
+
+## Data Model
+
+```
+teams
+  id, name, slug, plan (free|pro|team)
+
+team_members
+  teamId, userId, role (owner|admin|member)
+
+team_invitations
+  id, teamId, email, role, token, status, expiresAt
+```
+
+All workspaces and accounts reference a `teamId` foreign key, ensuring resources are always team-scoped.
+
+## Plans
+
+Teams have a plan tier that determines limits:
+
+| Plan | Description |
+|------|-------------|
+| `free` | Default tier for new teams |
+| `pro` | Expanded limits |
+| `team` | Full team features |

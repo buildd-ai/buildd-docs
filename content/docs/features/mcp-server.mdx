@@ -1,0 +1,225 @@
+---
+title: MCP Server
+description: Claude Code integration via Model Context Protocol
+---
+
+# MCP Server
+
+The Buildd MCP server integrates with Claude Code, providing task management and workspace memory tools directly in your coding workflow.
+
+## Setup
+
+### 1. Install
+
+The MCP server is in `apps/mcp-server/`. Build it:
+
+```bash
+cd apps/mcp-server
+bun install
+bun run build
+```
+
+### 2. Configure Claude Code
+
+Add to your Claude Code MCP settings (`~/.claude/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "buildd": {
+      "command": "node",
+      "args": ["/path/to/buildd/apps/mcp-server/dist/index.js"],
+      "env": {
+        "BUILDD_API_KEY": "bld_xxx"
+      }
+    }
+  }
+}
+```
+
+### 3. Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BUILDD_API_KEY` | Yes* | API key for authentication |
+| `BUILDD_SERVER` | No | Server URL (default: `https://buildd.dev`) |
+| `BUILDD_WORKSPACE_ID` | No | Force a specific workspace |
+| `BUILDD_WORKER_ID` | No | Worker context for creator tracking |
+
+\* Falls back to `apiKey` in `~/.buildd/config.json` if not set.
+
+## Workspace Detection
+
+The MCP server automatically detects which workspace to use:
+
+1. `BUILDD_WORKSPACE_ID` env var (highest priority)
+2. Git remote URL — reads `git remote get-url origin` and looks up the workspace by repo name
+3. No filter — if detection fails, operations that require a workspace will error
+
+## Account Levels
+
+The server dynamically adjusts available tools based on your account level:
+
+| Level | Available Tools |
+|-------|----------------|
+| **Worker** | Task lifecycle (list, claim, update, complete, fail) + memory + skills |
+| **Admin** | All worker tools + create tasks, reassign, send instructions, cleanup, schedules, decompose, register skills |
+
+Account level is detected automatically from the API key via `GET /api/accounts/me`.
+
+## Worker Tools
+
+### `buildd_list_tasks`
+
+List pending tasks available to claim. Returns tasks sorted by priority with pagination.
+
+```
+buildd_list_tasks(offset?: number)
+```
+
+### `buildd_claim_task`
+
+Claim a task to work on. Returns worker ID, branch name, and task details. Automatically includes relevant memory observations.
+
+```
+buildd_claim_task(maxTasks?: number, workspaceId?: string)
+```
+
+After claiming, check out the returned branch name before starting work.
+
+### `buildd_update_progress`
+
+Report progress at meaningful milestones (25%, 50%, 75%). Include git stats when available.
+
+```
+buildd_update_progress(
+  workerId: string,    // required
+  progress: number,    // required (0-100)
+  message?: string,
+  lastCommitSha?: string,
+  commitCount?: number,
+  filesChanged?: number,
+  linesAdded?: number,
+  linesRemoved?: number,
+  inputTokens?: number,
+  outputTokens?: number
+)
+```
+
+The response may include admin instructions or plan requests. If the worker has been terminated (409 response), stop working immediately.
+
+### `buildd_complete_task`
+
+Mark work as done. Call after pushing commits and creating a PR.
+
+```
+buildd_complete_task(workerId: string, summary?: string)
+```
+
+### `buildd_fail_task`
+
+Mark a task as failed with an error message.
+
+```
+buildd_fail_task(workerId: string, error: string)
+```
+
+### `buildd_create_pr`
+
+Create a GitHub pull request for the worker's branch.
+
+```
+buildd_create_pr(
+  workerId: string,
+  title: string,
+  head: string,       // branch name
+  base?: string,      // default: main
+  body?: string,
+  draft?: boolean
+)
+```
+
+### `buildd_update_task`
+
+Update a task's title, description, or priority.
+
+```
+buildd_update_task(taskId: string, title?: string, description?: string, priority?: number)
+```
+
+### `buildd_submit_plan`
+
+Submit an implementation plan for review (used with planning mode tasks).
+
+```
+buildd_submit_plan(workerId: string, plan: string)
+```
+
+## Memory Tools
+
+### `buildd_search_memory`
+
+Search workspace observations by text query, type, or file paths.
+
+```
+buildd_search_memory(query?: string, type?: string, files?: string[], limit?: number)
+```
+
+### `buildd_get_memory`
+
+Retrieve full observation details by IDs (max 20 per request).
+
+```
+buildd_get_memory(ids: string[])
+```
+
+### `buildd_save_memory`
+
+Save a new observation to workspace memory.
+
+```
+buildd_save_memory(
+  type: 'gotcha' | 'pattern' | 'decision' | 'discovery' | 'architecture',
+  title: string,
+  content: string,
+  files?: string[],
+  concepts?: string[]
+)
+```
+
+### `buildd_list_skills`
+
+List available skills for the workspace, merging workspace-scoped and team-level skills.
+
+```
+buildd_list_skills(workspaceId?: string)
+```
+
+## Admin Tools
+
+These tools are only available to admin-level accounts:
+
+| Tool | Description |
+|------|-------------|
+| `buildd_create_task` | Create a new task (workspace auto-detected) |
+| `buildd_reassign_task` | Force-reassign a stuck task |
+| `buildd_send_instruction` | Send instructions to a running worker |
+| `buildd_run_cleanup` | Clean up stale workers and orphaned tasks |
+| `buildd_create_schedule` | Create a recurring task schedule |
+| `buildd_list_schedules` | List workspace schedules |
+| `buildd_decompose_task` | Break a large task into subtasks |
+| `buildd_register_skill` | Register or update a workspace skill |
+
+## Worker Workflow
+
+The typical MCP workflow:
+
+1. **`buildd_list_tasks`** — see what's available
+2. **`buildd_claim_task`** — claim a task, read the included memory
+3. **`git checkout <branch>`** — switch to the worker branch
+4. **`buildd_search_memory`** — search for context on unfamiliar files
+5. Do the work, saving observations with **`buildd_save_memory`** as you go
+6. **`buildd_update_progress`** — report at milestones (check for admin instructions in response)
+7. **`git push`** — push your commits
+8. **`buildd_create_pr`** — create a pull request
+9. **`buildd_complete_task`** — mark the task as done

@@ -1,0 +1,105 @@
+---
+title: GitHub Integration
+description: Connect GitHub repos for automatic task creation and PR management
+---
+
+# GitHub Integration
+
+Buildd integrates with GitHub via a GitHub App. This enables automatic task creation from issues, PR creation from workers, and repo syncing.
+
+## Installation
+
+1. Navigate to your team settings in the Buildd dashboard
+2. Click **"Install GitHub App"**
+3. Select which GitHub organization or user account to install on
+4. Choose repositories: **All repositories** or **Selected repositories**
+5. Authorize the app
+
+After installation, Buildd stores the installation details and syncs accessible repositories.
+
+## Repo Syncing
+
+Once installed, Buildd fetches and stores metadata for all accessible repositories:
+
+- Repository name, owner, and full name (`owner/repo`)
+- Default branch
+- Private/public status
+- HTML URL and description
+
+Repositories are refreshed when the installation is updated (repos added/removed).
+
+## Linking Repos to Workspaces
+
+Connect a GitHub repository to a workspace to enable:
+
+- **Automatic workspace detection** — the MCP server detects which workspace to use by reading the `git remote origin` URL
+- **PR creation** — workers can create pull requests via the API
+- **Issue-to-task sync** — new GitHub issues become Buildd tasks automatically
+
+## Webhooks
+
+Buildd listens for GitHub webhook events:
+
+### `issues` — Automatic Task Creation
+
+When a new issue is opened on a linked repository, Buildd automatically creates a task:
+
+- Task title matches the issue title
+- Task description includes the issue body
+- Task links back to the GitHub issue via `externalUrl`
+- The source is tracked as `github`
+
+### `installation` — App Lifecycle
+
+Handles installation created, deleted, and suspended events to keep the database in sync.
+
+### `installation_repositories` — Repo Changes
+
+When repositories are added or removed from the installation, Buildd updates its repo list.
+
+## PR Creation from Workers
+
+Workers can create pull requests through the Buildd API after pushing their changes:
+
+```bash
+# Via MCP server
+buildd_create_pr \
+  --workerId "worker-id" \
+  --title "feat: add user settings page" \
+  --head "buildd/task-123" \
+  --base "main" \
+  --body "Implements user settings with profile editing"
+```
+
+The API uses the GitHub App's installation token to create the PR on behalf of the worker. The PR URL and number are stored on the worker record for tracking.
+
+### API Endpoint
+
+```
+POST /api/github/pr
+Content-Type: application/json
+Authorization: Bearer bld_xxx
+
+{
+  "workerId": "worker-uuid",
+  "title": "PR title",
+  "head": "branch-name",
+  "base": "main",
+  "body": "PR description",
+  "draft": false
+}
+```
+
+## Data Model
+
+```
+github_installations
+  id, installationId, accountType, accountLogin,
+  accessToken, tokenExpiresAt, permissions, repositorySelection
+
+github_repos
+  id, installationId, repoId, fullName, name, owner,
+  private, defaultBranch, htmlUrl, description
+```
+
+Workspaces reference GitHub repos via `githubRepoId` and `githubInstallationId` foreign keys.
