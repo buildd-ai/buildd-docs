@@ -9,6 +9,8 @@
     "teams",
     "github",
     "workspace-config",
-    "mcp-server"
+    "mcp-server",
+    "device-auth",
+    "attachments"
   ]
 }

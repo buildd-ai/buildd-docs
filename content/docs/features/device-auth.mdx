@@ -1,0 +1,70 @@
+---
+title: Device Authentication
+description: Headless login flow for CLI tools and MCP servers using human-readable codes
+---
+
+# Device Authentication
+
+Device authentication lets CLI tools and MCP servers obtain API keys without browser-based OAuth redirects. It follows the [OAuth 2.0 Device Authorization Grant](https://datatracker.ietf.org/doc/html/rfc8628) pattern with a human-readable code.
+
+## How It Works
+
+```
+CLI / MCP Server                    Buildd Server                    Browser
+      │                                  │                              │
+      ├── POST /api/auth/device/code ──→ │                              │
+      │   { clientName: "CLI" }          │                              │
+      │                                  │                              │
+      │ ←── { user_code: "ABCD-1234",    │                              │
+      │       device_token: "abc...",    │                              │
+      │       verification_url: "..." }  │                              │
+      │                                  │                              │
+      │   Display code to user           │                              │
+      │   "Enter ABCD-1234 at url"       │                              │
+      │                                  │                              │
+      │                                  │ ←── User visits URL ─────── │
+      │                                  │     enters code, approves    │
+      │                                  │                              │
+      │── POST /api/auth/device/token ─→ │                              │
+      │   (polling every 5s)             │                              │
+      │                                  │                              │
+      │ ←── 428 (pending)                │                              │
+      │ ←── 428 (pending)                │                              │
+      │ ←── 200 { api_key: "bld_..." }   │                              │
+      │                                  │                              │
+      │   Store key, authenticated ✓     │                              │
+```
+
+1. **CLI requests a code** — `POST /api/auth/device/code` returns a user code (`ABCD-1234` format) and a device token
+2. **User approves in browser** — visits the verification URL, enters the code while logged in
+3. **CLI polls for completion** — `POST /api/auth/device/token` with the device token, receives `428` until approved
+4. **API key returned** — once approved, the CLI receives a `bld_xxx` API key (one-time retrieval, then cleared from DB)
+
+## Account Level
+
+The requesting client can specify an account level:
+
+- `admin` — full access: create tasks, manage workspaces, send worker instructions
+- `worker` — limited access: claim tasks, report progress, save memory
+
+```json
+POST /api/auth/device/code
+{ "clientName": "MCP Server", "level": "admin" }
+```
+
+The approval flow creates or updates a named account for the user's team with the requested level.
+
+## Security
+
+- **15-minute expiry** — codes expire after 15 minutes if not approved
+- **One-time key retrieval** — the plaintext API key is cleared from the database after the CLI retrieves it
+- **Human-readable codes** — `ABCD-1234` format excludes ambiguous characters (I, O) to prevent typos
+- **Session-gated approval** — only authenticated users can approve codes
+
+## API Reference
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/auth/device/code` | None | Generate user code + device token |
+| `POST` | `/api/auth/device/token` | None | Poll for approval (returns `428` if pending) |
+| `POST` | `/api/auth/device/approve` | Session | Approve a code (browser-side) |

@@ -1,0 +1,65 @@
+---
+title: Task Attachments
+description: Attach images to tasks using presigned upload URLs
+---
+
+# Task Attachments
+
+Tasks can include image attachments — screenshots, mockups, diagrams — that give agents visual context alongside the text description.
+
+## How It Works
+
+Attachments use presigned URLs for direct upload to S3-compatible storage (R2, S3, etc.). The flow is:
+
+1. **Request upload URLs** — `POST /api/attachments/upload` with file metadata
+2. **Upload directly** — `PUT` the file to the returned presigned URL
+3. **Reference in task** — include the storage key in the task description or metadata
+
+## Constraints
+
+- **Images only** — MIME type must start with `image/` (PNG, JPEG, GIF, WebP, SVG)
+- **10MB per file** — maximum individual file size
+- **5 files per request** — batch upload limit
+
+## API Reference
+
+### Request Upload URLs
+
+```bash
+curl -X POST https://buildd.dev/api/attachments/upload \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspaceId": "ws_xxx",
+    "files": [
+      { "filename": "screenshot.png", "mimeType": "image/png", "sizeBytes": 245000 }
+    ]
+  }'
+```
+
+### Response
+
+```json
+{
+  "uploads": [
+    {
+      "storageKey": "attachments/ws_xxx/uuid/screenshot.png",
+      "uploadUrl": "https://storage.example.com/presigned-url...",
+      "filename": "screenshot.png",
+      "mimeType": "image/png"
+    }
+  ]
+}
+```
+
+### Upload the File
+
+```bash
+curl -X PUT "https://storage.example.com/presigned-url..." \
+  -H "Content-Type: image/png" \
+  --data-binary @screenshot.png
+```
+
+## Authentication
+
+Supports both API key (`Bearer bld_xxx`) and session auth. Storage must be configured on the server (`S3_BUCKET`, `S3_ENDPOINT`, etc.) — returns `503` if not set up.
