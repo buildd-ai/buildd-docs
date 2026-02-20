@@ -1,13 +1,29 @@
 ---
 title: Skills
-description: Workspace-scoped skill registry that delivers SKILL.md packages to agents at task execution time
+description: Hybrid skill registry — team-wide standards plus workspace-scoped bindings with local scanning and promotion
 ---
 
 # Skills
 
-Skills are reusable instruction packages that give agents domain-specific expertise. Each skill is a `SKILL.md` file — the [open standard](https://docs.anthropic.com/en/docs/agents-and-tools/agent-skills) adopted by Anthropic, OpenAI, and the broader agent ecosystem — stored in your workspace registry and delivered to agents automatically when they claim tasks.
+Skills are reusable instruction packages that give agents domain-specific expertise. Each skill is a `SKILL.md` file — the [open standard](https://docs.anthropic.com/en/docs/agents-and-tools/agent-skills) adopted by Anthropic, OpenAI, and the broader agent ecosystem — stored in a hybrid registry and delivered to agents automatically when they claim tasks.
 
 Think of skills as npm packages for agent knowledge: structured, versioned, composable. Buildd handles the registry and delivery so you don't need to manage files across machines.
+
+## Architecture: Team + Workspace
+
+Buildd uses a **hybrid skill model** with two tiers:
+
+- **Team skills** (`skills` table) — Canonical definitions shared across all workspaces in a team. Admin-managed, versioned by content hash. Think of these as your org's standard operating procedures.
+- **Workspace skills** (`workspace_skills` table) — Per-project bindings tied to a specific workspace (git repo). Can be created manually, discovered via local scanning, or promoted from workspace to team.
+
+```
+[.claude/skills/ on disk] ──scan──▶ [workspace_skills]  ──promote──▶ [skills (team)]
+                                     origin='scan'                     shared across team
+                                     enabled=false
+                                     (pending review)
+```
+
+When resolving skills for a task, Buildd checks **workspace skills first** (enabled only), then falls back to **team skills**. This lets workspaces override team defaults with project-specific variations.
 
 ## Why Skills
 
@@ -181,6 +197,27 @@ project/
 
 This file-based delivery follows the Claude Code convention. The agent's prompt also includes a context section listing installed skills and their paths, so the agent knows what expertise is available.
 
+## Promoting Skills to Team
+
+Workspace skills that prove useful across multiple projects can be promoted to the team registry. Promoted skills become available to all workspaces in the team.
+
+### From the Dashboard
+
+1. Navigate to your workspace's **Skills** page
+2. Find the skill you want to promote
+3. Click **Promote to Team** — requires admin role
+4. The skill is copied to the team registry and linked via `skillId`
+5. The workspace skill's `origin` changes to `promoted`
+
+### From the API
+
+```bash
+curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/skills/{skill-id}/promote \
+  -H "Authorization: Bearer bld_xxx"
+```
+
+After promotion, the team skill acts as the canonical version. Other workspaces can reference it by slug and get the team-level content. The originating workspace keeps its local copy linked to the team skill.
+
 ## Managing Skills
 
 ### Browsing and Editing
@@ -190,6 +227,9 @@ Navigate to your workspace and click **Skills** in the header. From the skills l
 - **Expand** any skill to preview its SKILL.md content
 - **Toggle** skills on or off — disabled skills can't be attached to new tasks
 - **Delete** skills you no longer need
+- **Promote** workspace skills to the team registry (admin only)
+
+Each skill shows an origin badge indicating how it was created: `manual`, `scan`, or `promoted`.
 
 To update a skill's content, use the API `PATCH` endpoint or re-register it via MCP.
 
@@ -247,27 +287,39 @@ A few principles for skills that actually improve agent success rates:
 
 For programmatic access, skills are managed through REST endpoints. Authentication works with both session cookies (dashboard) and API keys (`Bearer bld_xxx`).
 
-### Endpoints
+### Workspace Skill Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/workspaces/{id}/skills` | List skills. `?enabled=true` to filter. |
-| `POST` | `/api/workspaces/{id}/skills` | Create a skill. Requires `name` and `content`. |
-| `GET` | `/api/workspaces/{id}/skills/{skillId}` | Get a single skill with full content. |
-| `PATCH` | `/api/workspaces/{id}/skills/{skillId}` | Update skill fields. |
-| `DELETE` | `/api/workspaces/{id}/skills/{skillId}` | Delete a skill. |
+| `GET` | `/api/workspaces/{id}/skills` | List workspace skills. `?enabled=true` to filter. |
+| `POST` | `/api/workspaces/{id}/skills` | Create/upsert a skill. Requires `name` and `content`. Upserts by `(workspaceId, slug)`. |
+| `GET` | `/api/workspaces/{id}/skills/{skillId}` | Get a single workspace skill with full content. |
+| `PATCH` | `/api/workspaces/{id}/skills/{skillId}` | Update skill fields (content, enabled, description, etc.). |
+| `DELETE` | `/api/workspaces/{id}/skills/{skillId}` | Delete a workspace skill binding. |
+| `POST` | `/api/workspaces/{id}/skills/sync` | Batch upsert from local scanner. Sets `origin: 'scan'`. |
+| `POST` | `/api/workspaces/{id}/skills/{skillId}/promote` | Promote to team registry. Requires admin role. |
 
-### Skill Object
+### Team Skill Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/skills` | List team-level skills. |
+| `POST` | `/api/skills` | Register a team skill. Accepts optional `content` alongside `contentHash`. |
+
+### Workspace Skill Object
 
 ```json
 {
   "id": "uuid",
   "workspaceId": "uuid",
+  "skillId": null,
   "slug": "code-review",
   "name": "Code Review Standards",
   "description": "Security-focused code review checklist",
   "content": "# Code Review\n\n...",
+  "contentHash": "sha256-abc123...",
   "source": "manual",
+  "origin": "manual",
   "metadata": {
     "version": "1.0",
     "author": "platform-team",
@@ -279,22 +331,23 @@ For programmatic access, skills are managed through REST endpoints. Authenticati
 }
 ```
 
-### Source Types
+The `skillId` field is `null` for workspace-only skills and links to the team `skills` table when promoted.
 
-| Source | Description |
+### Origin Types
+
+| Origin | Description |
 |--------|-------------|
 | `manual` | Created via dashboard, API, or MCP (default) |
-| `git` | Imported from a git repository |
-| `npm` | Installed from an npm package |
-| `local_scan` | Discovered from local `.claude/skills/` directory |
+| `scan` | Discovered from local `.claude/skills/` directory via scanner |
+| `promoted` | Promoted to team registry — linked via `skillId` |
 
 ### MCP Tools
 
 | Tool | Access | Description |
 |------|--------|-------------|
-| `buildd_list_skills` | All users | List enabled skills in workspace |
-| `buildd_register_skill` | Admin | Create a new skill |
-| `buildd_create_task` | All users | Accepts `skills` array parameter |
+| `buildd_list_skills` | All users | List workspace + team skills (merged view) |
+| `buildd_register_skill` | Admin | Register a skill to the workspace |
+| `buildd_create_task` | All users | Accepts `skillSlugs` array parameter |
 
 ### Creating a Skill (API)
 
@@ -308,6 +361,26 @@ curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/skills \
   }'
 ```
 
+### Syncing Skills from Scanner (API)
+
+```bash
+curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/skills/sync \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "skills": [
+      {
+        "slug": "deploy-policy",
+        "name": "Deploy Policy",
+        "content": "# Deploy Policy\n\n...",
+        "contentHash": "sha256-abc123..."
+      }
+    ]
+  }'
+```
+
+Synced skills land with `origin: 'scan'` and `enabled: false` by default.
+
 ### Creating a Task with Skills (API)
 
 ```bash
@@ -318,6 +391,8 @@ curl -X POST https://buildd.dev/api/tasks \
     "workspaceId": "ws_xxx",
     "title": "Audit checkout flow UI",
     "description": "Review the checkout pages against the latest Figma designs",
-    "skills": ["ui-audit", "accessibility-check"]
+    "skillSlugs": ["ui-audit", "accessibility-check"]
   }'
 ```
+
+The server resolves each slug against workspace skills (enabled only) first, then team skills. Resolved skill references are stored in `task.context.skillRefs`. The legacy `skillRef: { slug }` format is also supported for backward compatibility.

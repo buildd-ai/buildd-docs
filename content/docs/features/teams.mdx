@@ -1,0 +1,317 @@
+---
+title: Teams & Access Control
+description: Multi-tenancy model with team ownership, role-based permissions, invitation workflows, and workspace access control
+---
+
+# Teams & Access Control
+
+Teams are the multi-tenancy boundary in Buildd. Every workspace, account, and skill belongs to a team. Teams let you organize people, control who can create or claim tasks, and share resources across projects.
+
+When you sign up, Buildd creates a **personal team** automatically (`personal-{id}`). You can create additional teams for your organization and invite collaborators.
+
+## Team Structure
+
+A team has:
+
+- **Name** — Human-readable label (e.g., "Acme Engineering")
+- **Slug** — URL-safe identifier, unique across all teams. Lowercase letters, numbers, and hyphens only (e.g., `acme-eng`)
+- **Plan** — `free`, `pro`, or `team`
+- **Members** — Users with assigned roles
+- **Owned resources** — Accounts, workspaces, and skills scoped to this team
+
+```
+Team (acme-eng)
+├── Members
+│   ├── alice@acme.com (owner)
+│   ├── bob@acme.com (admin)
+│   └── carol@acme.com (member)
+├── Accounts
+│   ├── acme-worker (service, API key)
+│   ├── alice-oauth (user, OAuth)
+│   └── ci-bot (action, GitHub Actions)
+├── Workspaces
+│   ├── frontend-app
+│   └── api-server
+└── Skills
+    ├── code-review
+    └── deploy-policy
+```
+
+## Roles
+
+Team members are assigned one of three roles. Roles follow a strict hierarchy: owner > admin > member.
+
+| Capability | Owner | Admin | Member |
+|-----------|-------|-------|--------|
+| View team and members | Yes | Yes | Yes |
+| Update team name/slug | Yes | Yes | No |
+| Invite new members | Yes | Yes | No |
+| Revoke invitations | Yes | Yes | No |
+| Add members directly | Yes | Yes | No |
+| Remove members | Yes | Yes (not owners) | No |
+| Change member roles | Yes | No | No |
+| Promote to owner | Yes | No | No |
+| Delete team | Yes | No | No |
+| View pending invitations | Yes | Yes | No |
+
+**Owner** is the highest privilege level. Only owners can change roles or delete the team. The last owner cannot be removed or demoted — transfer ownership first.
+
+**Admin** can manage day-to-day team operations: inviting members, managing workspace access, and revoking invitations. Admins cannot remove or demote owners.
+
+**Member** has read access to the team and its resources. Members can view the team, see who else is on it, and work within workspaces they have access to.
+
+## Creating a Team
+
+### From the Dashboard
+
+Navigate to your team selector and click **Create Team**. Provide a name and slug.
+
+### From the API
+
+```bash
+curl -X POST https://buildd.dev/api/teams \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session=..." \
+  -d '{
+    "name": "Acme Engineering",
+    "slug": "acme-eng"
+  }'
+```
+
+The creating user is automatically added as the **owner**.
+
+## Invitations
+
+Invitations are the primary way to add people to a team. They are email-based, time-limited, and role-scoped.
+
+### How It Works
+
+1. **Admin or owner sends invitation** — Specifies the email address and role (`admin` or `member`)
+2. **System generates a unique token** — Creates an invite URL: `https://buildd.dev/app/invitations/{token}`
+3. **Recipient clicks the link** — Must be signed in (or sign up first)
+4. **Invitation is accepted** — User is added to the team with the specified role
+
+### Invitation Rules
+
+- Invitations **expire after 7 days**
+- Only **one pending invitation per email** per team at a time
+- Expired invitations are marked automatically when acceptance is attempted
+- You cannot invite someone who is **already a team member**
+- Owners and admins can **revoke** pending invitations at any time
+- Invitations can assign `admin` or `member` roles (not `owner` — ownership must be granted after joining)
+
+### Sending an Invitation
+
+```bash
+curl -X POST https://buildd.dev/api/teams/{team-id}/invitations \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session=..." \
+  -d '{
+    "email": "carol@acme.com",
+    "role": "member"
+  }'
+```
+
+Response includes the invitation record and the invite URL to share with the recipient:
+
+```json
+{
+  "invitation": {
+    "id": "uuid",
+    "teamId": "uuid",
+    "email": "carol@acme.com",
+    "role": "member",
+    "token": "unique-token",
+    "status": "pending",
+    "expiresAt": "2026-02-27T00:00:00Z"
+  },
+  "inviteUrl": "https://buildd.dev/app/invitations/unique-token"
+}
+```
+
+### Accepting an Invitation
+
+```bash
+curl -X POST https://buildd.dev/api/invitations/{token}/accept \
+  -H "Cookie: session=..."
+```
+
+The user must be authenticated. On success, they are added to the team and the invitation is marked as `accepted`.
+
+## Account Types
+
+Accounts represent API credentials within a team. Every account belongs to exactly one team and has an API key (`bld_xxx`) for authentication.
+
+| Type | Auth | Use Case |
+|------|------|----------|
+| `user` | OAuth (seat-based) | Human users via the dashboard. Billed by concurrent sessions. |
+| `service` | API key (pay-per-token) | Automated workers, CI pipelines, MCP integrations. Billed by token usage. |
+| `action` | API key | GitHub Actions runners. Same billing as service but typed for filtering. |
+
+### Auth Models
+
+Accounts use one of two billing strategies:
+
+- **OAuth (`authType: 'oauth'`)** — Seat-based. Tracks `activeSessions` against `maxConcurrentSessions`. Used by dashboard users.
+- **API key (`authType: 'api'`)** — Pay-per-token. Tracks `totalCost` against `maxCostPerDay`. Used by service accounts and action accounts.
+
+Both types share common limits like `maxConcurrentWorkers` (default: 3), which caps how many workers an account can run simultaneously.
+
+### Account Level
+
+Accounts also have a `level` field:
+
+- **`admin`** — Full access to workspace configuration, skill management, schedule creation
+- **`worker`** — Can claim and execute tasks, report progress, save observations
+
+## Workspace Access Control
+
+Workspaces are owned by teams, but access can be further restricted at the account level using the `accountWorkspaces` junction table and the workspace `accessMode` setting.
+
+### Access Modes
+
+Each workspace has an `accessMode` that controls who can interact with it:
+
+| Mode | Behavior |
+|------|----------|
+| `open` | Any account in the team can claim tasks. Default for new workspaces. |
+| `restricted` | Only accounts explicitly linked via `accountWorkspaces` can claim tasks. |
+
+### Account-Workspace Permissions
+
+When a workspace uses `restricted` mode, each account's access is defined by an entry in `accountWorkspaces` with two permission flags:
+
+| Permission | Description |
+|-----------|-------------|
+| `canClaim` | Account can claim and work on tasks in this workspace. Default: `true`. |
+| `canCreate` | Account can create new tasks in this workspace. Default: `false`. |
+
+This lets you set up precise access patterns:
+
+- **Read-only observer** — `canClaim: false, canCreate: false` (linked but no write access)
+- **Worker** — `canClaim: true, canCreate: false` (can execute tasks, cannot create them)
+- **Task creator** — `canClaim: false, canCreate: true` (can file tasks but doesn't execute)
+- **Full access** — `canClaim: true, canCreate: true` (can both create and execute)
+
+### Example: Restricted Workspace Setup
+
+A team wants their CI bot to only work on the `api-server` workspace, while human users have full access:
+
+```
+Workspace: api-server (accessMode: restricted)
+├── alice-oauth: canClaim=true, canCreate=true
+├── bob-oauth: canClaim=true, canCreate=true
+└── ci-bot: canClaim=true, canCreate=false
+```
+
+The `ci-bot` account can claim and execute tasks but cannot create new ones. Any other account in the team that is not linked to this workspace is blocked from interacting with it entirely.
+
+## Personal Teams
+
+Every user gets a personal team on signup with the slug `personal-{id}`. Personal teams:
+
+- Cannot be deleted
+- Are always owned by the creating user
+- Work identically to regular teams for all other operations
+- Can hold workspaces, accounts, and skills like any team
+
+## Managing Members
+
+### Updating a Member's Role
+
+Only owners can change roles:
+
+```bash
+curl -X PATCH https://buildd.dev/api/teams/{team-id}/members/{user-id} \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session=..." \
+  -d '{ "role": "admin" }'
+```
+
+### Removing a Member
+
+Owners and admins can remove members. Admins cannot remove owners:
+
+```bash
+curl -X DELETE https://buildd.dev/api/teams/{team-id}/members/{user-id} \
+  -H "Cookie: session=..."
+```
+
+Safety checks:
+- The last owner cannot be removed
+- Owners cannot remove themselves (transfer ownership first)
+- Admins cannot remove owners
+
+## API Reference
+
+All team endpoints require session authentication (OAuth cookie). API key authentication is not supported for team management.
+
+### Team Endpoints
+
+| Method | Endpoint | Description | Required Role |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/teams` | List teams for the current user with role and member count | Any (authenticated) |
+| `POST` | `/api/teams` | Create a new team. Creator becomes owner. | Any (authenticated) |
+| `GET` | `/api/teams/{id}` | Get team details, members, and current user's role | Member+ |
+| `PATCH` | `/api/teams/{id}` | Update team name or slug | Admin+ |
+| `DELETE` | `/api/teams/{id}` | Delete team (cannot delete personal teams) | Owner |
+
+### Member Endpoints
+
+| Method | Endpoint | Description | Required Role |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/teams/{id}/members` | List all team members with user info | Member+ |
+| `POST` | `/api/teams/{id}/members` | Add a user directly by ID | Admin+ |
+| `PATCH` | `/api/teams/{id}/members/{userId}` | Change a member's role | Owner |
+| `DELETE` | `/api/teams/{id}/members/{userId}` | Remove a member from the team | Admin+ |
+
+### Invitation Endpoints
+
+| Method | Endpoint | Description | Required Role |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/teams/{id}/invitations` | List pending invitations | Admin+ |
+| `POST` | `/api/teams/{id}/invitations` | Send an invitation by email | Admin+ |
+| `DELETE` | `/api/teams/{id}/invitations/{invitationId}` | Revoke a pending invitation | Admin+ |
+| `POST` | `/api/invitations/{token}/accept` | Accept an invitation (any authenticated user) | Any (authenticated) |
+
+### Team Object
+
+```json
+{
+  "id": "uuid",
+  "name": "Acme Engineering",
+  "slug": "acme-eng",
+  "plan": "team",
+  "createdAt": "2026-01-15T00:00:00Z",
+  "updatedAt": "2026-01-15T00:00:00Z"
+}
+```
+
+### Member Object
+
+```json
+{
+  "userId": "uuid",
+  "role": "admin",
+  "joinedAt": "2026-01-15T00:00:00Z",
+  "name": "Bob Smith",
+  "email": "bob@acme.com",
+  "image": "https://..."
+}
+```
+
+### Invitation Object
+
+```json
+{
+  "id": "uuid",
+  "teamId": "uuid",
+  "email": "carol@acme.com",
+  "role": "member",
+  "token": "unique-token",
+  "invitedBy": "uuid",
+  "status": "pending",
+  "createdAt": "2026-02-20T00:00:00Z",
+  "expiresAt": "2026-02-27T00:00:00Z"
+}
+```

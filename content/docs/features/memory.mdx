@@ -1,0 +1,252 @@
+---
+title: Shared Memory
+description: Persistent knowledge base that lets agents learn from past tasks — gotchas, patterns, decisions, and discoveries shared across your workspace
+---
+
+# Shared Memory
+
+Shared Memory is a workspace-scoped knowledge base that persists across tasks. When an agent encounters a non-obvious bug, discovers an undocumented API behavior, or makes an architectural decision, it saves an **observation**. Future agents claiming tasks in the same workspace automatically receive relevant observations, so they don't repeat mistakes or re-discover the same things.
+
+Think of it as institutional memory for your agents: the kind of knowledge that experienced engineers carry in their heads but rarely write down.
+
+## Why Shared Memory
+
+Without memory, every agent starts from zero. Agent #47 hits the same Postgres connection pool gotcha that agent #12 already solved. Agent #63 re-discovers the same deploy quirk that agent #31 documented in a commit message nobody reads.
+
+Shared Memory fixes this:
+
+- **No repeated mistakes** — Gotchas saved by one agent are surfaced to the next agent working on related files or concepts
+- **Consistent decisions** — Architectural choices are recorded and delivered automatically, so agents don't contradict earlier work
+- **Progressive learning** — The workspace gets smarter over time as agents accumulate observations
+- **Zero-effort delivery** — Relevant memory is injected into the task context when an agent claims work. No manual curation required.
+
+## Observation Types
+
+Every observation has a type that describes what kind of knowledge it captures:
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| `gotcha` | Non-obvious bugs, traps, or footguns | "neon-http driver doesn't support interactive transactions — use atomic UPDATE...WHERE with .returning() instead" |
+| `pattern` | Recurring code conventions | "All API routes use authenticateRequest() helper that returns { type, account \| user }" |
+| `decision` | Architectural choices and their rationale | "Chose Pusher over SSE for realtime because Vercel serverless can't hold connections" |
+| `discovery` | Learned behaviors, undocumented APIs | "Vercel preview deploys use a different DATABASE_URL than production — check env before running migrations" |
+| `architecture` | System structure and data flow | "Worker claim flow: POST /api/workers/claim → optimistic lock via UPDATE...WHERE status='pending' → return task + branch" |
+| `summary` | High-level task summaries | "Refactored auth module to support both API key and OAuth — added authType field to accounts table" |
+
+Use the most specific type that fits. `gotcha` observations are prioritized in delivery because they prevent the most costly mistakes.
+
+## Creating Observations
+
+### From Claude Code (MCP)
+
+With the Buildd MCP server connected, agents save observations using the `buildd_memory` tool:
+
+```
+> Save a gotcha: the neon-http driver doesn't support db.transaction() with interactive logic
+
+Agent calls buildd_memory action=save:
+{
+  "action": "save",
+  "params": {
+    "type": "gotcha",
+    "title": "neon-http driver does not support interactive transactions",
+    "content": "Do NOT use db.transaction() with interactive logic — the neon-http driver doesn't support it. Use atomic UPDATE...WHERE with .returning() for optimistic locking instead.",
+    "files": ["packages/core/db/index.ts"],
+    "concepts": ["database", "transactions", "drizzle"]
+  }
+}
+```
+
+The `files` and `concepts` arrays are optional but improve search relevance. Use them when the observation is tied to specific files or domain concepts.
+
+### From the API
+
+```bash
+curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/observations \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "pattern",
+    "title": "API route authentication helper",
+    "content": "All API routes use authenticateRequest() which returns { type: api|session|dev, account|user }. Check auth.type to determine which limits apply.",
+    "files": ["apps/web/src/lib/auth-helpers.ts"],
+    "concepts": ["auth", "api"]
+  }'
+```
+
+**Required fields**: `type`, `title`, `content`
+
+**Optional fields**: `files` (array of file paths), `concepts` (array of keywords), `workerId`, `taskId`
+
+## Searching Memory
+
+### From Claude Code (MCP)
+
+Agents search memory using the `buildd_memory` tool with `action=search`:
+
+```
+> Search memory for anything about database migrations
+
+Agent calls buildd_memory action=search:
+{
+  "action": "search",
+  "params": {
+    "query": "database migrations",
+    "limit": 10
+  }
+}
+```
+
+Search supports several filters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `query` | string | Text search across titles and content |
+| `type` | string | Filter by observation type (e.g., `gotcha`) |
+| `files` | string[] | Match observations referencing specific file paths |
+| `concepts` | string[] | Match observations tagged with specific concepts |
+| `limit` | number | Max results (default 10, max 50) |
+
+The MCP tool returns full observation content inline, so the agent can read and act on the results immediately.
+
+### From the API
+
+**Search endpoint** (compact index format):
+
+```bash
+curl "https://buildd.dev/api/workspaces/{workspace-id}/observations/search?query=auth&type=gotcha&limit=5" \
+  -H "Authorization: Bearer bld_xxx"
+```
+
+Returns titles, types, files, and concepts — but not full content. Use the batch endpoint to fetch full details:
+
+```bash
+curl "https://buildd.dev/api/workspaces/{workspace-id}/observations/batch?ids=uuid1,uuid2,uuid3" \
+  -H "Authorization: Bearer bld_xxx"
+```
+
+**List endpoint** (full observations with text search):
+
+```bash
+curl "https://buildd.dev/api/workspaces/{workspace-id}/observations?type=pattern&search=auth&limit=20" \
+  -H "Authorization: Bearer bld_xxx"
+```
+
+## Auto-injection on Task Claim
+
+When an agent claims a task, Buildd automatically searches for observations related to the task title and injects relevant memory into the claim response. This happens without any action from the agent:
+
+1. Agent calls `claim_task`
+2. Server searches observations matching the task title
+3. Top matching observations are formatted as a `## Relevant Memory` section
+4. The section is included in the claim response alongside the task details
+
+The agent sees something like:
+
+```
+## Relevant Memory
+READ these observations before starting work:
+- **[gotcha] neon-http driver does not support interactive transactions**: Do NOT use db.transaction()...
+- **[pattern] API route authentication helper**: All API routes use authenticateRequest()...
+
+Use `buildd_memory` action=search for more context.
+```
+
+This ensures agents benefit from workspace knowledge without needing to remember to search first. The memory injection is best-effort — if the search fails, the claim still succeeds.
+
+## Compact View
+
+The compact endpoint returns all workspace observations formatted as markdown, grouped by type. This is useful for dashboards or for injecting a full workspace knowledge summary into a prompt:
+
+```bash
+curl "https://buildd.dev/api/workspaces/{workspace-id}/observations/compact" \
+  -H "Authorization: Bearer bld_xxx"
+```
+
+Response:
+
+```json
+{
+  "markdown": "## Workspace Memory (12 observations)\n\n### Gotchas\n- **neon-http transactions**: Do NOT use...\n\n### Patterns\n- **API auth helper**: All routes use...\n\n### Decisions\n...",
+  "count": 12
+}
+```
+
+Content is truncated to ~200 characters per observation and capped at ~16,000 characters total (~4,000 tokens) to stay prompt-friendly.
+
+## API Reference
+
+Authentication works with both session cookies (dashboard) and API keys (`Bearer bld_xxx`).
+
+### Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/workspaces/{id}/observations` | List observations. Supports `?type=`, `?search=`, `?limit=`, `?offset=`. |
+| `POST` | `/api/workspaces/{id}/observations` | Create an observation. Requires `type`, `title`, `content`. |
+| `GET` | `/api/workspaces/{id}/observations/search` | Search observations (compact index format). Supports `?query=`, `?type=`, `?files=`, `?limit=`, `?offset=`. |
+| `GET` | `/api/workspaces/{id}/observations/batch` | Fetch full details for specific IDs. `?ids=uuid1,uuid2` (max 20). |
+| `GET` | `/api/workspaces/{id}/observations/compact` | All observations as formatted markdown for prompt injection. |
+
+### Observation Object
+
+```json
+{
+  "id": "uuid",
+  "workspaceId": "uuid",
+  "workerId": "uuid | null",
+  "taskId": "uuid | null",
+  "type": "gotcha",
+  "title": "neon-http driver does not support interactive transactions",
+  "content": "Do NOT use db.transaction() with interactive logic...",
+  "files": ["packages/core/db/index.ts"],
+  "concepts": ["database", "transactions"],
+  "createdAt": "2026-02-20T00:00:00Z"
+}
+```
+
+### MCP Tools
+
+| Tool | Action | Description |
+|------|--------|-------------|
+| `buildd_memory` | `search` | Search workspace observations. Params: `query?`, `type?`, `files?`, `concepts?`, `limit?`. Returns full content inline. |
+| `buildd_memory` | `save` | Save a new observation. Params: `type` (required), `title` (required), `content` (required), `files?`, `concepts?`. |
+
+### Creating an Observation (API)
+
+```bash
+curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/observations \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "decision",
+    "title": "Chose Pusher over SSE for realtime",
+    "content": "Vercel serverless functions cannot hold long-lived connections, so SSE is not viable. Using Pusher for all realtime updates (task status, worker progress).",
+    "concepts": ["realtime", "pusher", "architecture"]
+  }'
+```
+
+### Searching Observations (API)
+
+```bash
+# Text search
+curl "https://buildd.dev/api/workspaces/{workspace-id}/observations/search?query=database" \
+  -H "Authorization: Bearer bld_xxx"
+
+# Filter by type
+curl "https://buildd.dev/api/workspaces/{workspace-id}/observations/search?type=gotcha" \
+  -H "Authorization: Bearer bld_xxx"
+
+# Filter by file
+curl "https://buildd.dev/api/workspaces/{workspace-id}/observations/search?files=packages/core/db/schema.ts" \
+  -H "Authorization: Bearer bld_xxx"
+```
+
+## Best Practices
+
+1. **Save early, save often** — If an agent hits something surprising, it should save an observation immediately. Don't wait until the task is done.
+2. **Be specific in titles** — "Database issue" is useless. "neon-http driver does not support interactive transactions" is searchable and actionable.
+3. **Tag files and concepts** — These improve search relevance. An observation about `schema.ts` should reference that file path.
+4. **Prefer `gotcha` for footguns** — Gotchas get priority in delivery. Use them for anything that would waste time if re-discovered.
+5. **Use `decision` for "why" context** — When an agent makes a non-obvious architectural choice, record the reasoning so future agents don't undo it.
+6. **Keep content concise** — Observations are truncated to ~200 characters in compact views. Put the key information in the first sentence.

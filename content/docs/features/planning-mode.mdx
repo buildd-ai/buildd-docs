@@ -1,0 +1,356 @@
+---
+title: Planning Mode
+description: Design-before-code workflow with human-in-the-loop plan review, approval, and revision
+---
+
+# Planning Mode
+
+Planning mode adds a human-in-the-loop gate between task assignment and implementation. Instead of jumping straight into code, the agent produces an implementation plan, pauses for your review, and only proceeds after explicit approval.
+
+This is useful for high-stakes changes — migrations, architectural refactors, security-sensitive work — where you want to verify the approach before any code is written.
+
+## How It Works
+
+The planning workflow has four phases:
+
+```
+1. Agent claims task (mode: planning)
+2. Agent produces plan → status: awaiting_plan_approval
+3. Human reviews → approve or request changes
+4. Agent implements the approved plan (mode switches to execution)
+```
+
+When a task has `mode: 'planning'`, the worker knows to produce a plan instead of writing code. Once the plan is submitted, the worker enters the `awaiting_plan_approval` status and waits. No code is written, no branches are modified, no PRs are created — until you say go.
+
+## Task Modes
+
+Every task has a `mode` field with two possible values:
+
+| Mode | Behavior |
+|------|----------|
+| `execution` | Default. Agent claims the task and starts implementing immediately. |
+| `planning` | Agent produces an implementation plan first, then waits for approval before writing code. |
+
+The mode is set at task creation time. When a planning task is approved, Buildd automatically switches its mode to `execution` so the worker can proceed with implementation.
+
+## Creating a Planning Task
+
+### From the Dashboard
+
+1. Click **New Task** from your workspace
+2. Fill in the title and description
+3. Set the **Mode** dropdown to **Planning**
+4. Create the task
+
+### From the API
+
+```bash
+curl -X POST https://buildd.dev/api/tasks \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspaceId": "ws_xxx",
+    "title": "Migrate auth to OAuth2",
+    "description": "Replace session-based auth with OAuth2 + PKCE flow",
+    "mode": "planning"
+  }'
+```
+
+### From Claude Code (MCP)
+
+```
+> Create a planning task "Migrate auth to OAuth2" with description "Replace session-based auth with OAuth2 + PKCE flow"
+```
+
+The `buildd` MCP tool's `create_task` action accepts a `mode` field in its params.
+
+### In Scheduled Tasks
+
+When configuring a schedule, the task template supports a `mode` field. Every task created from that schedule inherits the mode:
+
+```json
+{
+  "taskTemplate": {
+    "title": "Weekly architecture review",
+    "description": "Review recent changes and propose improvements",
+    "mode": "planning"
+  }
+}
+```
+
+## Plan Submission
+
+When a worker claims a planning task, it produces an implementation plan and submits it via the plan API. The plan is stored as a `task_plan` artifact attached to the worker.
+
+After submission:
+
+1. The worker status changes to `awaiting_plan_approval`
+2. The plan content is stored as an artifact (type: `task_plan`)
+3. A realtime event (`worker:plan_submitted`) notifies the dashboard
+4. The worker pauses and waits for a response
+
+If the worker submits a revised plan (after receiving feedback), the existing plan artifact is updated in place rather than creating a new one.
+
+## Plan Review Panel
+
+When a worker enters the `awaiting_plan_approval` status, the task detail page in the dashboard shows the **Plan Review Panel** — a collapsible section that displays the full plan content rendered as markdown.
+
+The panel has three states:
+
+- **Awaiting Review** — Pulsing indicator, action buttons visible. The panel auto-expands when the worker submits a plan.
+- **Approved** — Green checkmark, panel collapses automatically. The worker proceeds to implementation.
+- **Collapsed** — Click to expand and re-read the plan at any time, even after approval.
+
+### Approval Options
+
+When a plan is awaiting review, the panel shows three action buttons:
+
+| Button | Effect |
+|--------|--------|
+| **Implement (bypass)** | Approves the plan and resumes the worker with permission bypass mode. The agent can execute commands without individual permission prompts. Use for trusted plans in sandboxed environments. |
+| **Implement (review)** | Approves the plan and resumes the worker in standard review mode. The agent follows normal permission rules. |
+| **Request Changes** | Opens a feedback textarea. Your feedback is sent to the worker, which revises and resubmits the plan. |
+
+### Requesting Changes
+
+Click **Request Changes** to expand a feedback textarea. Describe what you want changed — be specific about which parts of the plan need adjustment, what's missing, or what approach you'd prefer.
+
+When you submit feedback:
+
+1. The feedback is recorded in the plan artifact's revision history
+2. The worker status returns to `running`
+3. The feedback is delivered to the worker as pending instructions
+4. The worker revises its plan and resubmits
+
+You can request multiple rounds of revisions. Each round is tracked in the artifact metadata.
+
+## The `awaiting_plan_approval` Status
+
+This is a dedicated worker status that signals the worker is blocked on human review. It sits between `running` and the next phase of work:
+
+```
+idle → starting → running → awaiting_plan_approval → running → completed
+```
+
+While in this status:
+
+- The worker is **not consuming compute** — it's paused, waiting for input
+- The dashboard shows the plan review panel with action buttons
+- The task remains in `assigned` or `in_progress` status
+- No code changes, commits, or PRs are created
+
+The worker exits this status when you either approve the plan or request changes.
+
+## Structured Output with JSON Schema
+
+Planning tasks pair well with structured output. By attaching an `outputSchema` (JSON Schema) to a task, you can require the agent to produce structured data instead of — or in addition to — free-form text.
+
+This is useful for planning tasks where you want machine-readable output: cost estimates, dependency graphs, migration checklists, risk assessments.
+
+### How It Works
+
+1. Define a JSON Schema and attach it to the task via the `outputSchema` field
+2. The schema is passed to the Claude Agent SDK as `outputFormat`
+3. The SDK validates the agent's output against the schema
+4. The validated structured output is stored in `task.result.structuredOutput`
+
+### Example
+
+```bash
+curl -X POST https://buildd.dev/api/tasks \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspaceId": "ws_xxx",
+    "title": "Estimate migration effort",
+    "mode": "planning",
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "estimatedHours": { "type": "number" },
+        "riskLevel": { "type": "string", "enum": ["low", "medium", "high"] },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "description": { "type": "string" },
+              "effort": { "type": "string" }
+            }
+          }
+        },
+        "blockers": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["estimatedHours", "riskLevel", "steps"]
+    }
+  }'
+```
+
+The agent's structured output is available in the task result after completion:
+
+```json
+{
+  "result": {
+    "structuredOutput": {
+      "estimatedHours": 16,
+      "riskLevel": "medium",
+      "steps": [
+        { "description": "Add OAuth2 provider config", "effort": "2h" },
+        { "description": "Implement PKCE flow", "effort": "6h" },
+        { "description": "Migrate existing sessions", "effort": "4h" },
+        { "description": "Update middleware", "effort": "4h" }
+      ],
+      "blockers": ["Need OAuth2 provider credentials"]
+    }
+  }
+}
+```
+
+## When to Use Planning Mode
+
+**Use planning mode when:**
+
+- The change is irreversible or high-risk (database migrations, infrastructure changes)
+- You need to verify the approach before code is written (architectural decisions)
+- Multiple valid approaches exist and you want to choose (refactoring strategies)
+- The task affects shared systems or external services (API contracts, integrations)
+- You want structured analysis before implementation (effort estimates, risk assessments)
+- Compliance or audit requirements demand documented approval of changes
+
+**Use execution mode when:**
+
+- The task is well-defined with a clear implementation path (bug fixes, small features)
+- Speed matters more than review (routine maintenance, dependency updates)
+- The agent has proven skill patterns for this type of work
+- The change is easily reversible (feature flags, config changes)
+
+## API Reference
+
+### Plan Endpoints
+
+All plan endpoints require authentication via API key (`Bearer bld_xxx`) or session cookie.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/workers/{id}/plan` | Submit a plan for review. Body: `{ plan: string }`. Sets worker status to `awaiting_plan_approval`. |
+| `GET` | `/api/workers/{id}/plan` | Get the current plan artifact for a worker. |
+| `POST` | `/api/workers/{id}/plan/approve` | Approve the plan and resume implementation. Optional body: `{ mode: 'bypass' \| 'review' }`. |
+| `POST` | `/api/workers/{id}/plan/revise` | Request plan revisions. Body: `{ feedback: string }`. Worker resumes to revise. |
+
+### Submit Plan
+
+```bash
+curl -X POST https://buildd.dev/api/workers/{worker-id}/plan \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan": "# Implementation Plan\n\n## Approach\n..."
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "message": "Plan submitted successfully",
+  "artifact": {
+    "id": "uuid",
+    "workerId": "uuid",
+    "type": "task_plan",
+    "title": "Implementation Plan: Migrate auth to OAuth2",
+    "content": "# Implementation Plan\n\n## Approach\n...",
+    "metadata": { "submittedAt": "2026-02-20T10:00:00Z" }
+  },
+  "worker": { "id": "uuid", "status": "awaiting_plan_approval" }
+}
+```
+
+### Approve Plan
+
+```bash
+curl -X POST https://buildd.dev/api/workers/{worker-id}/plan/approve \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "mode": "review" }'
+```
+
+The `mode` parameter controls how the worker runs during implementation:
+
+- `review` (default) — Standard permission mode. The worker follows normal tool approval rules.
+- `bypass` — Permission bypass mode. The worker can execute commands without individual prompts.
+
+**Response:**
+
+```json
+{
+  "message": "Plan approved - worker will continue with implementation",
+  "worker": { "id": "uuid", "status": "running" }
+}
+```
+
+On approval, the task's mode is automatically switched from `planning` to `execution`, and the approval is recorded in the plan artifact's metadata with a timestamp and approver ID.
+
+### Request Revisions
+
+```bash
+curl -X POST https://buildd.dev/api/workers/{worker-id}/plan/revise \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "feedback": "The migration should use a phased rollout instead of a big-bang cutover. Add a rollback procedure for each phase."
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "message": "Revision request sent to worker",
+  "worker": { "id": "uuid", "status": "running" }
+}
+```
+
+The feedback is delivered to the worker via pending instructions and Pusher realtime events. The worker revises its plan and resubmits. Each revision round is tracked in the artifact metadata:
+
+```json
+{
+  "metadata": {
+    "submittedAt": "2026-02-20T10:00:00Z",
+    "revisions": [
+      {
+        "feedback": "Add rollback procedure for each phase",
+        "timestamp": "2026-02-20T10:15:00Z"
+      }
+    ],
+    "lastRevisionRequest": "2026-02-20T10:15:00Z"
+  }
+}
+```
+
+### Realtime Events
+
+Planning mode triggers Pusher events for live dashboard updates:
+
+| Event | Channel | When |
+|-------|---------|------|
+| `worker:plan_submitted` | `workspace:{id}` | Worker submits a plan |
+| `worker:plan_approved` | `workspace:{id}`, `worker:{id}` | Plan is approved |
+| `worker:plan_revision_requested` | `workspace:{id}`, `worker:{id}` | Revisions requested |
+| `worker:command` | `worker:{id}` | Approval or revision instructions delivered to worker |
+
+### Task Creation with Planning Mode
+
+```bash
+curl -X POST https://buildd.dev/api/tasks \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspaceId": "ws_xxx",
+    "title": "Redesign notification system",
+    "description": "Replace polling with WebSocket-based real-time notifications",
+    "mode": "planning",
+    "priority": 2
+  }'
+```
+
+The `mode` field accepts `execution` (default) or `planning`.

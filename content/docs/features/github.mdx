@@ -1,0 +1,418 @@
+---
+title: GitHub Integration
+description: Connect repositories, auto-create tasks from issues, and let workers open pull requests — all through a GitHub App
+---
+
+# GitHub Integration
+
+Buildd connects to GitHub through a GitHub App that syncs repositories, converts labeled issues into tasks, dispatches work to GitHub Actions, and lets workers open pull requests when they finish. The integration is optional — workspaces work without it — but it unlocks the tightest loop between your issue tracker and your agents.
+
+## How It Works
+
+The GitHub App sits between your repositories and Buildd:
+
+```
+GitHub Issues ──webhook──▶ Buildd API ──creates──▶ Task
+       ▲                                              │
+       │                                              ▼
+   Pull Request ◀──create_pr──── Worker (agent) ◀──claim── Local UI
+```
+
+1. **Install** the Buildd GitHub App on your org or user account
+2. **Link** a repository to a workspace during workspace creation
+3. **Label** issues with `buildd` or `ai` to auto-create tasks
+4. **Workers** claim tasks, do the work, push commits, and create PRs through the Buildd API
+
+No polling, no manual sync. Webhooks handle everything in real time.
+
+## Installing the GitHub App
+
+### From the Dashboard
+
+1. Navigate to **Workspaces**
+2. Click **New Workspace** (or edit an existing one)
+3. In the GitHub section, click **Connect GitHub**
+4. You'll be redirected to GitHub to install the Buildd App
+5. Choose which organization or user account to install on
+6. Select **All repositories** or pick specific ones
+7. After installation, you're redirected back to Buildd with the connection confirmed
+
+The installation is saved in Buildd's database and shared across all workspaces in your team. You only need to install once per GitHub org/user — then any workspace can link to repositories from that installation.
+
+### Required Permissions
+
+The GitHub App requests these permissions:
+
+| Permission | Access | Purpose |
+|-----------|--------|---------|
+| **Issues** | Read & write | Receive issue webhooks, read issue details |
+| **Pull requests** | Read & write | Create PRs on behalf of workers |
+| **Contents** | Read | Dispatch `repository_dispatch` events for GitHub Actions |
+| **Metadata** | Read | List repositories for workspace linking |
+
+### Webhook Events
+
+The App subscribes to these webhook events:
+
+| Event | Purpose |
+|-------|---------|
+| `installation` | Track app installs, uninstalls, suspensions |
+| `installation_repositories` | Track repo additions/removals from the installation |
+| `issues` | Auto-create tasks from labeled issues |
+| `ping` | Verify webhook connectivity |
+
+## Linking Repositories to Workspaces
+
+After installing the GitHub App, link a repository to a workspace to enable the full integration.
+
+### During Workspace Creation
+
+When creating a new workspace from the dashboard:
+
+1. Select a GitHub installation (org or user) from the dropdown
+2. Browse available repositories — the list is fetched live from GitHub
+3. Select a repository — its name, default branch, and visibility are saved
+4. The workspace is created with `githubRepoId` and `githubInstallationId` set
+
+Repositories that are already linked to another workspace show a badge so you can avoid duplicates.
+
+### What Linking Enables
+
+Once a workspace is linked to a GitHub repository:
+
+- **Issue-to-task sync** — Issues labeled `buildd` or `ai` in that repo create Buildd tasks in the workspace
+- **PR creation** — Workers can create pull requests in the linked repo via the API
+- **GitHub Actions dispatch** — New tasks trigger `repository_dispatch` events in the repo
+- **Branch resolution** — PR base branch defaults to the workspace's configured target branch, falling back to the repo's default branch
+
+## Auto-Creating Tasks from Issues
+
+The core of the integration: open a GitHub issue with the right label, and Buildd creates a task automatically.
+
+### Label Requirements
+
+Issues must have at least one of these labels to trigger task creation:
+
+- **`buildd`** — Standard label for Buildd-managed tasks
+- **`ai`** — Alternative label for teams that prefer a generic name
+
+Issues without either label are ignored. This prevents noise from every bug report or feature request becoming an agent task.
+
+### Planning Mode
+
+Add the **`buildd:plan`** label alongside `buildd` or `ai` to create the task in **planning mode** instead of execution mode. Planning-mode tasks produce a plan for human review before any code changes are made. See [Planning Mode](/docs/features/planning) for details.
+
+### Issue-to-Task Mapping
+
+| GitHub Issue Field | Buildd Task Field |
+|-------------------|-------------------|
+| `title` | `title` |
+| `body` | `description` |
+| `html_url` | `externalUrl` |
+| `issue-{id}` | `externalId` (used for deduplication) |
+| Issue labels | Determine `mode` (`planning` vs `execution`) |
+
+The task's `context.github` object stores the issue number, issue ID, and repo full name for reference.
+
+Tasks are created with `creationSource: 'github'` so you can filter and track them in the dashboard.
+
+### Lifecycle Sync
+
+Issue state changes propagate to tasks:
+
+| GitHub Event | Buildd Action |
+|-------------|---------------|
+| Issue **opened** (with label) | Task created as `pending` |
+| Issue **closed** | Task marked `completed` |
+| Issue **reopened** | Task marked `pending` |
+
+Duplicate prevention uses `externalId` — if a task already exists for an issue, the webhook skips creation.
+
+### Task Dispatch Chain
+
+When a task is created from a GitHub issue, Buildd dispatches it through multiple channels:
+
+1. **Pusher** — Real-time event to the dashboard
+2. **Webhook** — If the workspace has a webhook configured (e.g., OpenClaw)
+3. **GitHub Actions** — `repository_dispatch` event with type `buildd-task` to the linked repo
+4. **Fallback** — Pusher `TASK_ASSIGNED` event for any connected Local UI workers
+
+The first handler that succeeds claims the dispatch. If the workspace has GitHub Actions set up, the task can be picked up by a workflow runner automatically.
+
+### GitHub Actions Dispatch
+
+When a workspace has a linked GitHub repo, new tasks trigger a `repository_dispatch` event:
+
+```json
+{
+  "event_type": "buildd-task",
+  "client_payload": {
+    "task_id": "uuid",
+    "title": "Fix login timeout",
+    "workspace_id": "uuid",
+    "mode": "execution",
+    "priority": 0
+  }
+}
+```
+
+You can handle this in a GitHub Actions workflow:
+
+```yaml
+name: Buildd Worker
+on:
+  repository_dispatch:
+    types: [buildd-task]
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Claim and execute task
+        run: |
+          # Use the Buildd API to claim the task
+          curl -X POST https://buildd.dev/api/workers/claim \
+            -H "Authorization: Bearer ${{ secrets.BUILDD_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"workspaceId": "${{ github.event.client_payload.workspace_id }}"}'
+```
+
+## PR Creation by Workers
+
+Workers can create pull requests in the linked GitHub repository after completing their work. This is the standard end-of-task workflow: push commits to a branch, then create a PR.
+
+### How It Works
+
+1. Worker pushes commits to a feature branch (e.g., `buildd/task-abc123`)
+2. Worker (or Local UI on its behalf) calls the PR creation API
+3. Buildd uses the GitHub App's installation token to create the PR
+4. The PR URL and number are saved on the worker record
+
+### Base Branch Resolution
+
+The PR targets the first available branch from this priority chain:
+
+1. **Explicit `base` parameter** — If the caller specifies a base branch
+2. **Task-level `targetBranch`** — From `task.context.targetBranch`
+3. **Workspace `gitConfig.targetBranch`** — From the workspace git configuration
+4. **Repository default branch** — From the linked GitHub repo record
+5. **Fallback** — `main`
+
+This lets you configure branch targets at the workspace level (e.g., always target `dev`) while allowing per-task overrides.
+
+### From the MCP Server
+
+Workers using the Buildd MCP server create PRs through the `buildd` tool:
+
+```
+buildd action=create_pr params={
+  "workerId": "uuid",
+  "title": "fix: resolve login timeout issue",
+  "head": "buildd/task-abc123",
+  "body": "## Summary\nFixed the timeout by increasing the session TTL.\n\nCloses #42",
+  "base": "dev",
+  "draft": false
+}
+```
+
+Parameters:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `workerId` | Yes | The worker's ID (received when claiming the task) |
+| `title` | Yes | PR title — use conventional commit format if your repo requires it |
+| `head` | Yes | Source branch name containing the changes |
+| `body` | No | PR description (defaults to "Created by buildd worker {name}") |
+| `base` | No | Target branch (see resolution chain above) |
+| `draft` | No | Create as draft PR (default: `false`) |
+
+### From the REST API
+
+```bash
+curl -X POST https://buildd.dev/api/github/pr \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workerId": "worker-uuid",
+    "title": "fix: resolve login timeout issue",
+    "head": "buildd/task-abc123",
+    "body": "Closes #42",
+    "base": "dev"
+  }'
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "pr": {
+    "number": 123,
+    "url": "https://github.com/org/repo/pull/123",
+    "state": "open",
+    "title": "fix: resolve login timeout issue"
+  }
+}
+```
+
+## Installation Management
+
+### Listing Installations
+
+The dashboard shows all GitHub App installations for your team. Each installation displays:
+
+- Organization or user account name and avatar
+- Repository selection mode (`all` or `selected`)
+- Suspension status
+- Installation date
+
+### Disconnecting an Installation
+
+To remove a GitHub integration:
+
+1. From the dashboard, find the installation you want to remove
+2. Click **Disconnect**
+3. The installation and all its persisted repo records are deleted (cascade)
+4. Workspaces that were linked to repos from this installation keep their `repo` field (the URL string) but lose the active GitHub App link
+
+To fully uninstall, also remove the app from GitHub's settings at `https://github.com/settings/installations`.
+
+### Webhook Signature Verification
+
+All incoming webhooks are verified using HMAC-SHA256 signatures. The `X-Hub-Signature-256` header is checked against the `GITHUB_APP_WEBHOOK_SECRET` environment variable. Invalid signatures are rejected with a 401 response.
+
+## Git Workflow Configuration
+
+Each workspace has a `gitConfig` object that controls how workers interact with the repository. This configuration is set from the dashboard and applies to all workers in the workspace.
+
+### Branch Strategy
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `defaultBranch` | string | `"main"` | The repo's primary branch |
+| `branchingStrategy` | enum | `"feature"` | One of: `none`, `trunk`, `gitflow`, `feature`, `custom` |
+| `branchPrefix` | string | `"buildd/"` | Prefix for worker-created branches (e.g., `buildd/`, `feature/`) |
+| `useBuildBranch` | boolean | — | Use `buildd/task-id` naming convention |
+| `targetBranch` | string | — | Where PRs should target (overrides `defaultBranch` for PRs) |
+
+### Commit Conventions
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commitStyle` | enum | — | `conventional`, `freeform`, or `custom` |
+| `commitPrefix` | string | — | Prefix for commit messages (e.g., `[JIRA-123]`) |
+
+### PR Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `requiresPR` | boolean | — | Whether the agent must create a PR before completing |
+| `autoCreatePR` | boolean | — | Automatically create a PR when the worker finishes |
+
+### Agent Controls
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agentInstructions` | string | Free-form instructions prepended to the agent's prompt |
+| `useClaudeMd` | boolean | Whether to load `CLAUDE.md` from the repo (default: `true` if exists) |
+| `bypassPermissions` | boolean | Allow the agent to bypass permission prompts (dangerous commands still blocked) |
+| `maxBudgetUsd` | number | Maximum budget in USD per worker session — SDK stops the agent when reached |
+| `maxTurns` | number | Maximum number of turns per worker session |
+
+### Configuration Status
+
+Workspaces have a `configStatus` field:
+
+- **`unconfigured`** — Default state. Git config may be set but hasn't been reviewed by an admin.
+- **`admin_confirmed`** — An admin has reviewed and confirmed the configuration. Workspace-level settings (like `bypassPermissions` and `maxBudgetUsd`) take priority over local worker config.
+
+## Environment Variables
+
+The GitHub App requires these environment variables:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GITHUB_APP_ID` | Yes | The GitHub App's numeric ID |
+| `GITHUB_APP_PRIVATE_KEY` | Yes* | RSA private key (with `\n` for newlines) |
+| `GITHUB_APP_PRIVATE_KEY_BASE64` | Yes* | Base64-encoded private key (preferred for Vercel) |
+| `GITHUB_APP_CLIENT_ID` | Yes | OAuth client ID for the GitHub App |
+| `GITHUB_APP_CLIENT_SECRET` | No | OAuth client secret (for future OAuth flows) |
+| `GITHUB_APP_WEBHOOK_SECRET` | Yes | Secret for verifying webhook signatures |
+| `GITHUB_APP_SLUG` | No | App slug for install URL (default: `buildd`) |
+
+*Provide either `GITHUB_APP_PRIVATE_KEY` or `GITHUB_APP_PRIVATE_KEY_BASE64`. The base64 variant avoids newline issues in environment variable UIs like Vercel.
+
+## API Reference
+
+### GitHub Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/github/install` | Session | Redirect to GitHub App installation page |
+| `GET` | `/api/github/callback` | Session | Handle post-installation redirect from GitHub |
+| `GET` | `/api/github/installations` | Session | List all GitHub App installations |
+| `DELETE` | `/api/github/installations/{id}` | Session | Disconnect an installation (cascade deletes repos) |
+| `GET` | `/api/github/installations/{id}/repos` | Session | List repositories for an installation (fetched live from GitHub) |
+| `POST` | `/api/github/pr` | API key | Create a pull request in a workspace's linked repo |
+| `POST` | `/api/github/webhook` | Webhook signature | Receive GitHub webhook events |
+
+### MCP Tools
+
+| Tool | Action | Description |
+|------|--------|-------------|
+| `buildd` | `create_pr` | Create a PR: `{ workerId, title, head, body?, base?, draft? }` |
+
+### Create PR Request
+
+```bash
+curl -X POST https://buildd.dev/api/github/pr \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workerId": "worker-uuid",
+    "title": "feat: add user avatar upload",
+    "head": "buildd/task-abc123",
+    "body": "## Changes\n- Added avatar upload endpoint\n- Added image resizing\n\nCloses #15",
+    "base": "dev",
+    "draft": false
+  }'
+```
+
+### Create PR Response
+
+```json
+{
+  "ok": true,
+  "pr": {
+    "number": 42,
+    "url": "https://github.com/your-org/your-repo/pull/42",
+    "state": "open",
+    "title": "feat: add user avatar upload"
+  }
+}
+```
+
+### Webhook Payload (Issues)
+
+When an issue with the `buildd` or `ai` label is opened, the webhook creates a task with this structure:
+
+```json
+{
+  "workspaceId": "uuid",
+  "title": "Issue title from GitHub",
+  "description": "Issue body markdown",
+  "externalId": "issue-123456",
+  "externalUrl": "https://github.com/org/repo/issues/42",
+  "status": "pending",
+  "mode": "execution",
+  "creationSource": "github",
+  "context": {
+    "github": {
+      "issueNumber": 42,
+      "issueId": 123456,
+      "repoFullName": "org/repo"
+    }
+  }
+}
+```
