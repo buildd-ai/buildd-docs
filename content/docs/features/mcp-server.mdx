@@ -5,46 +5,72 @@ description: Claude Code integration via Model Context Protocol
 
 # MCP Server
 
-The Buildd MCP server integrates with Claude Code, providing task management and workspace memory tools directly in your coding workflow.
+The Buildd MCP server integrates with Claude Code, providing task coordination and workspace memory directly in your coding workflow.
+
+Two connection modes are available:
+
+- **Local (stdio)** — runs as a subprocess, supports filesystem access for skill registration
+- **Remote (Streamable HTTP)** — connects over HTTP, no local installation needed
 
 ## Setup
 
-### 1. Install
+### Recommended: `buildd login`
 
-The MCP server is in `apps/mcp-server/`. Build it:
+The easiest setup — auto-configures the local MCP server:
 
 ```bash
-cd apps/mcp-server
-bun install
-bun run build
+curl -fsSL https://buildd.dev/install.sh | bash
+buildd login
 ```
 
-### 2. Configure Claude Code
+After login, restart Claude Code and the buildd tools will be available.
 
-Add to your Claude Code MCP settings (`~/.claude/mcp.json`):
+### Alternative: Manual `.mcp.json`
+
+**Local (stdio):**
 
 ```json
 {
   "mcpServers": {
     "buildd": {
-      "command": "node",
-      "args": ["/path/to/buildd/apps/mcp-server/dist/index.js"],
+      "command": "bun",
+      "args": ["run", "~/.buildd/apps/mcp-server/src/index.ts"],
       "env": {
-        "BUILDD_API_KEY": "bld_xxx"
+        "BUILDD_WORKSPACE": "optional-workspace-id"
       }
     }
   }
 }
 ```
 
-### 3. Environment Variables
+The API key is read from `~/.buildd/config.json` automatically.
+
+**Remote (Streamable HTTP):**
+
+```json
+{
+  "mcpServers": {
+    "buildd": {
+      "type": "streamable-http",
+      "url": "https://buildd.dev/api/mcp",
+      "headers": {
+        "Authorization": "Bearer bld_your_api_key"
+      }
+    }
+  }
+}
+```
+
+The remote server does not support `filePath` or `repo` params for `register_skill` (no filesystem access). Use the `content` param instead.
+
+### Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `BUILDD_API_KEY` | Yes* | API key for authentication |
 | `BUILDD_SERVER` | No | Server URL (default: `https://buildd.dev`) |
 | `BUILDD_WORKSPACE_ID` | No | Force a specific workspace |
-| `BUILDD_WORKER_ID` | No | Worker context for creator tracking |
+| `BUILDD_WORKER_ID` | No | Worker context (set automatically when claiming tasks) |
 
 \* Falls back to `apiKey` in `~/.buildd/config.json` if not set.
 
@@ -54,172 +80,117 @@ The MCP server automatically detects which workspace to use:
 
 1. `BUILDD_WORKSPACE_ID` env var (highest priority)
 2. Git remote URL — reads `git remote get-url origin` and looks up the workspace by repo name
-3. No filter — if detection fails, operations that require a workspace will error
+3. No filter — operations that require a workspace will prompt for `workspaceId`
 
-## Account Levels
+## Tools
 
-The server dynamically adjusts available tools based on your account level:
+The server exposes two tools: `buildd` for task coordination and `buildd_memory` for workspace knowledge. Both use an `action` parameter to select the operation.
 
-| Level | Available Tools |
-|-------|----------------|
-| **Worker** | Task lifecycle (list, claim, update, complete, fail) + memory + skills |
-| **Admin** | All worker tools + create tasks, reassign, send instructions, cleanup, schedules, decompose, register skills |
+### `buildd` — Task Coordination
 
-Account level is detected automatically from the API key via `GET /api/accounts/me`.
+Available actions depend on your account level (detected automatically from your API key).
 
-## Worker Tools
+#### Worker Actions (all accounts)
 
-### `buildd_list_tasks`
+| Action | Key Params | Description |
+|--------|-----------|-------------|
+| `list_tasks` | `offset?` | List pending tasks sorted by priority |
+| `claim_task` | `maxTasks?, workspaceId?` | Auto-claim highest-priority pending task |
+| `update_progress` | `workerId, progress, message?` | Report progress (0-100%) |
+| `complete_task` | `workerId, summary?, error?` | Mark task done or failed |
+| `create_pr` | `workerId, title, head` | Create a GitHub PR tracked on the worker |
+| `update_task` | `taskId, title?, description?, priority?` | Update task fields or dependencies |
+| `create_task` | `title, description, workspaceId?` | Create a new task |
+| `create_artifact` | `workerId, type, title, content?` | Create a shareable artifact |
+| `list_artifacts` | `workspaceId?, key?, type?` | List workspace artifacts |
+| `update_artifact` | `artifactId, title?, content?` | Update an existing artifact |
+| `review_workspace` | `hoursBack?, workspaceId?` | Review recent task quality |
+| `emit_event` | `workerId, type, label, metadata?` | Record a custom milestone event |
+| `query_events` | `workerId, type?` | Read events from worker timeline |
 
-List pending tasks available to claim. Returns tasks sorted by priority with pagination.
+#### Admin Actions (admin-level API key only)
 
-```
-buildd_list_tasks(offset?: number)
-```
+| Action | Key Params | Description |
+|--------|-----------|-------------|
+| `create_schedule` | `name, cronExpression, title` | Create a recurring schedule |
+| `update_schedule` | `scheduleId, cronExpression?` | Update a schedule |
+| `list_schedules` | `workspaceId?` | List all schedules |
+| `register_skill` | `name?, content?, filePath?, repo?` | Register a workspace skill |
 
-### `buildd_claim_task`
-
-Claim a task to work on. Returns worker ID, branch name, and task details. Automatically includes relevant memory observations.
-
-```
-buildd_claim_task(maxTasks?: number, workspaceId?: string)
-```
-
-After claiming, check out the returned branch name before starting work.
-
-### `buildd_update_progress`
-
-Report progress at meaningful milestones (25%, 50%, 75%). Include git stats when available.
-
-```
-buildd_update_progress(
-  workerId: string,    // required
-  progress: number,    // required (0-100)
-  message?: string,
-  lastCommitSha?: string,
-  commitCount?: number,
-  filesChanged?: number,
-  linesAdded?: number,
-  linesRemoved?: number,
-  inputTokens?: number,
-  outputTokens?: number
-)
-```
-
-The response may include admin instructions or plan requests. If the worker has been terminated (409 response), stop working immediately.
-
-### `buildd_complete_task`
-
-Mark work as done. Call after pushing commits and creating a PR.
+#### Examples
 
 ```
-buildd_complete_task(workerId: string, summary?: string)
+# Claim a task
+buildd action=claim_task
+
+# Report progress
+buildd action=update_progress params={ workerId: "...", progress: 50, message: "Implemented auth middleware" }
+
+# Create a PR and complete
+buildd action=create_pr params={ workerId: "...", title: "feat: add auth", head: "feat/auth" }
+buildd action=complete_task params={ workerId: "...", summary: "Added JWT auth middleware" }
+
+# Submit a plan for review
+buildd action=update_progress params={ workerId: "...", plan: "1. Add middleware\n2. Update routes\n3. Add tests" }
+
+# Record a custom event
+buildd action=emit_event params={ workerId: "...", type: "deploy", label: "Deployed to staging" }
 ```
 
-### `buildd_fail_task`
+### `buildd_memory` — Workspace Knowledge
 
-Mark a task as failed with an error message.
+| Action | Key Params | Description |
+|--------|-----------|-------------|
+| `search` | `query?, type?, files?, concepts?, limit?` | Search observations |
+| `save` | `type, title, content, files?, concepts?` | Save a new observation |
+| `update` | `id, title?, content?, type?, files?, concepts?` | Update an existing observation |
+| `delete` | `id` | Delete an observation |
 
-```
-buildd_fail_task(workerId: string, error: string)
-```
-
-### `buildd_create_pr`
-
-Create a GitHub pull request for the worker's branch.
-
-```
-buildd_create_pr(
-  workerId: string,
-  title: string,
-  head: string,       // branch name
-  base?: string,      // default: main
-  body?: string,
-  draft?: boolean
-)
-```
-
-### `buildd_update_task`
-
-Update a task's title, description, or priority.
+#### Examples
 
 ```
-buildd_update_task(taskId: string, title?: string, description?: string, priority?: number)
+# Search for relevant context
+buildd_memory action=search params={ query: "drizzle migrations", type: "gotcha" }
+
+# Save an observation
+buildd_memory action=save params={ type: "gotcha", title: "neon-http no transactions", content: "..." }
+
+# Update a stale observation
+buildd_memory action=update params={ id: "obs_xxx", content: "Updated guidance..." }
+
+# Remove outdated observation
+buildd_memory action=delete params={ id: "obs_xxx" }
 ```
 
-### `buildd_submit_plan`
+## MCP Resources
 
-Submit an implementation plan for review (used with planning mode tasks).
+The server exposes read-only resources that MCP clients can read directly:
 
-```
-buildd_submit_plan(workerId: string, plan: string)
-```
+| URI | Description |
+|-----|-------------|
+| `buildd://tasks/pending` | Pending tasks sorted by priority |
+| `buildd://workspace/memory` | Recent workspace observations |
+| `buildd://workspace/skills` | Available skills |
 
-## Memory Tools
+## Observability Events
 
-### `buildd_search_memory`
+Workers can emit custom events to their timeline using `emit_event`, and read them back with `query_events`. Events piggyback on the existing milestones system — no additional setup needed.
 
-Search workspace observations by text query, type, or file paths.
-
-```
-buildd_search_memory(query?: string, type?: string, files?: string[], limit?: number)
-```
-
-### `buildd_get_memory`
-
-Retrieve full observation details by IDs (max 20 per request).
-
-```
-buildd_get_memory(ids: string[])
-```
-
-### `buildd_save_memory`
-
-Save a new observation to workspace memory.
-
-```
-buildd_save_memory(
-  type: 'gotcha' | 'pattern' | 'decision' | 'discovery' | 'architecture',
-  title: string,
-  content: string,
-  files?: string[],
-  concepts?: string[]
-)
-```
-
-### `buildd_list_skills`
-
-List available skills for the workspace, merging workspace-scoped and team-level skills.
-
-```
-buildd_list_skills(workspaceId?: string)
-```
-
-## Admin Tools
-
-These tools are only available to admin-level accounts:
-
-| Tool | Description |
-|------|-------------|
-| `buildd_create_task` | Create a new task (workspace auto-detected) |
-| `buildd_reassign_task` | Force-reassign a stuck task |
-| `buildd_send_instruction` | Send instructions to a running worker |
-| `buildd_run_cleanup` | Clean up stale workers and orphaned tasks |
-| `buildd_create_schedule` | Create a recurring task schedule |
-| `buildd_list_schedules` | List workspace schedules |
-| `buildd_decompose_task` | Break a large task into subtasks |
-| `buildd_register_skill` | Register or update a workspace skill |
+Use cases:
+- Record deployment milestones
+- Track build/test results
+- Log decision points for later review
 
 ## Worker Workflow
 
 The typical MCP workflow:
 
-1. **`buildd_list_tasks`** — see what's available
-2. **`buildd_claim_task`** — claim a task, read the included memory
+1. **`buildd` action=list_tasks** — see what's available
+2. **`buildd` action=claim_task** — claim a task, read the included memory
 3. **`git checkout <branch>`** — switch to the worker branch
-4. **`buildd_search_memory`** — search for context on unfamiliar files
-5. Do the work, saving observations with **`buildd_save_memory`** as you go
-6. **`buildd_update_progress`** — report at milestones (check for admin instructions in response)
+4. **`buildd_memory` action=search** — search for context on unfamiliar files
+5. Do the work, saving observations with **`buildd_memory` action=save** as you go
+6. **`buildd` action=update_progress** — report at milestones (check for admin instructions in response)
 7. **`git push`** — push your commits
-8. **`buildd_create_pr`** — create a pull request
-9. **`buildd_complete_task`** — mark the task as done
+8. **`buildd` action=create_pr** — create a pull request (use this instead of `gh pr create`)
+9. **`buildd` action=complete_task** — mark the task as done

@@ -22,35 +22,40 @@ Each observation has a type that describes what kind of knowledge it captures:
 
 ## How Workers Use Memory
 
+### Automatic Memory on Claim
+
+When a worker claims a task via `buildd` action=claim_task, the server automatically searches memory using the task title and includes relevant observations in the response. Workers should read these before starting.
+
 ### Searching Before Work
 
-When a worker claims a task, relevant memory is automatically included in the claim response. Workers should also search manually before touching unfamiliar files:
+Workers should search manually before touching unfamiliar files:
 
-```bash
-# Via MCP server
-buildd_search_memory --query "drizzle schema migrations"
-buildd_search_memory --type gotcha --files "packages/core/db/schema.ts"
+```
+buildd_memory action=search params={ query: "drizzle schema migrations" }
+buildd_memory action=search params={ type: "gotcha", files: ["packages/core/db/schema.ts"] }
 ```
 
 Search supports:
 - **Text query** — full-text search across titles and content
 - **Type filter** — narrow to a specific observation type
 - **File filter** — find observations referencing specific file paths
+- **Concept filter** — search by tagged concepts
 - **Limit** — control result count (default: 10, max: 50)
 
-Search returns a compact index (id, title, type, files). Use `buildd_get_memory` with IDs to retrieve full content.
+Search returns full observation content inline — no separate fetch step needed.
 
 ### Saving Observations
 
 Save observations immediately when you encounter something noteworthy — don't wait until the end of a task:
 
-```bash
-buildd_save_memory \
-  --type gotcha \
-  --title "db.transaction() fails with neon-http driver" \
-  --content "Interactive transactions are not supported by the neon-http driver. Use atomic UPDATE...WHERE with .returning() for optimistic locking instead." \
-  --files '["packages/core/db/schema.ts"]' \
-  --concepts '["drizzle", "neon", "transactions"]'
+```
+buildd_memory action=save params={
+  type: "gotcha",
+  title: "db.transaction() fails with neon-http driver",
+  content: "Interactive transactions are not supported by the neon-http driver. Use atomic UPDATE...WHERE with .returning() for optimistic locking instead.",
+  files: ["packages/core/db/schema.ts"],
+  concepts: ["drizzle", "neon", "transactions"]
+}
 ```
 
 Fields:
@@ -60,6 +65,27 @@ Fields:
 - **files** (optional) — related file paths for searchability
 - **concepts** (optional) — tags for categorization
 
+### Updating Observations
+
+Correct stale or inaccurate observations:
+
+```
+buildd_memory action=update params={
+  id: "obs_xxx",
+  content: "Updated: neon-http now supports transactions in v0.10+, but only with pool mode disabled."
+}
+```
+
+Any field can be updated: `title`, `content`, `type`, `files`, `concepts`.
+
+### Deleting Observations
+
+Remove outdated observations that are no longer relevant:
+
+```
+buildd_memory action=delete params={ id: "obs_xxx" }
+```
+
 ## API Reference
 
 ### Search Observations
@@ -68,7 +94,7 @@ Fields:
 GET /api/workspaces/{id}/observations/search?query=...&type=...&files=...&limit=10
 ```
 
-### Get Full Details
+### Get Full Details (batch)
 
 ```
 GET /api/workspaces/{id}/observations/batch?ids=id1,id2,id3
@@ -90,12 +116,35 @@ Content-Type: application/json
 }
 ```
 
+### Update Observation
+
+```
+PATCH /api/workspaces/{id}/observations/{obsId}
+Content-Type: application/json
+
+{
+  "title": "Updated title",
+  "content": "Updated content..."
+}
+```
+
+### Delete Observation
+
+```
+DELETE /api/workspaces/{id}/observations/{obsId}
+```
+
+All observation endpoints support dual authentication — both API key (Bearer token) and session auth.
+
 ## MCP Server Usage
 
-The MCP server exposes memory through two tools:
+The `buildd_memory` tool exposes four actions:
 
-- **`buildd_search_memory`** — search for relevant observations before starting work
-- **`buildd_get_memory`** — retrieve full details for specific observation IDs
-- **`buildd_save_memory`** — save a new observation to workspace memory
+| Action | Description |
+|--------|-------------|
+| `search` | Search observations by query, type, files, or concepts |
+| `save` | Save a new observation |
+| `update` | Update an existing observation by ID |
+| `delete` | Delete an observation by ID |
 
-When a worker claims a task via `buildd_claim_task`, the server automatically searches memory using the task title and includes relevant observations in the response.
+Memory is also available as an MCP resource at `buildd://workspace/memory`, which returns the 20 most recent observations.
