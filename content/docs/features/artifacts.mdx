@@ -1,0 +1,274 @@
+---
+title: Artifacts
+description: Non-code deliverables that agents produce — reports, data exports, summaries, and shareable links
+---
+
+# Artifacts
+
+Artifacts are non-code deliverables that agents produce during task execution. While code changes land in pull requests, artifacts capture everything else: analysis reports, data exports, executive summaries, curated links, and rich content.
+
+Each artifact gets a unique shareable URL that works without authentication — share a report with stakeholders who don't have a Buildd account, embed a data export link in a Slack thread, or bookmark a summary for later reference.
+
+## Artifact Types
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| `content` | Rich markdown content — articles, documentation drafts, design specs | A blog post draft generated from research |
+| `report` | Structured analysis with findings and recommendations | Security audit results, performance benchmarks |
+| `data` | Structured data — JSON, CSV, or tabular output | API response analysis, metrics aggregation |
+| `link` | Curated external URL with context | A deployed preview URL, a relevant GitHub issue |
+| `summary` | Concise executive summary of work performed | Sprint recap, task completion digest |
+
+All types except `link` store their content directly in the `content` field. The `link` type requires a `url` parameter, stored in metadata, with optional `content` for descriptive context.
+
+## Creating Artifacts
+
+### From Claude Code (MCP)
+
+With the Buildd MCP server connected, agents create artifacts using the `create_artifact` action on the `buildd` tool:
+
+```
+> Summarize the findings from the security audit and create a shareable report
+```
+
+The agent calls `buildd` with `action: "create_artifact"` behind the scenes. The MCP server returns the artifact ID and a shareable URL:
+
+```
+Artifact created: "Security Audit Report" (report)
+ID: a1b2c3d4-...
+Share URL: https://buildd.dev/share/xK9mP2...
+```
+
+#### MCP Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `workerId` | Yes | The worker ID (from the active task claim) |
+| `type` | Yes | One of: `content`, `report`, `data`, `link`, `summary` |
+| `title` | Yes | Human-readable title for the artifact |
+| `content` | No | Markdown body, JSON data, or descriptive text |
+| `url` | No | Required for `link` type — the target URL |
+| `metadata` | No | Arbitrary JSON metadata to attach |
+
+### From the REST API
+
+Create an artifact by POSTing to the worker's artifacts endpoint:
+
+```bash
+curl -X POST https://buildd.dev/api/workers/{worker-id}/artifacts \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "report",
+    "title": "Weekly Performance Report",
+    "content": "# Performance Summary\n\n## Key Metrics\n- P95 latency: 142ms (down 12%)\n- Error rate: 0.03%\n- Throughput: 2,400 req/s"
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "artifact": {
+    "id": "a1b2c3d4-...",
+    "workerId": "w1x2y3z4-...",
+    "type": "report",
+    "title": "Weekly Performance Report",
+    "content": "# Performance Summary\n\n...",
+    "shareToken": "xK9mP2qR...",
+    "metadata": {},
+    "createdAt": "2026-02-20T10:30:00Z",
+    "shareUrl": "https://buildd.dev/share/xK9mP2qR..."
+  }
+}
+```
+
+#### Creating a Link Artifact
+
+Link artifacts require the `url` field:
+
+```bash
+curl -X POST https://buildd.dev/api/workers/{worker-id}/artifacts \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "link",
+    "title": "Staging Preview",
+    "url": "https://staging.example.com/preview/abc123",
+    "content": "Deploy preview for the new checkout flow"
+  }'
+```
+
+The `url` is stored in the artifact's `metadata.url` field and rendered as a clickable link on the share page.
+
+## Shareable Public Links
+
+Every artifact automatically gets a share token — a cryptographically random URL-safe string. The resulting share URL is public and requires no authentication:
+
+```
+https://buildd.dev/share/xK9mP2qR7vLnW3...
+```
+
+The share page renders differently based on artifact type:
+
+- **content / report / summary** — Rendered as formatted markdown with full styling
+- **data** — Displayed as formatted JSON in a monospace code block (with pretty-printing)
+- **link** — Shown as a clickable URL with optional description text
+
+Each share page includes the artifact title, the associated task name (if available), creation date, and a link back to buildd.dev.
+
+### Programmatic Access
+
+Share tokens also work via the API for programmatic consumption:
+
+```bash
+curl https://buildd.dev/api/share/{token}
+```
+
+**Response:**
+
+```json
+{
+  "artifact": {
+    "id": "a1b2c3d4-...",
+    "type": "report",
+    "title": "Weekly Performance Report",
+    "content": "# Performance Summary\n\n...",
+    "metadata": {},
+    "createdAt": "2026-02-20T10:30:00Z"
+  },
+  "task": {
+    "title": "Generate weekly performance report",
+    "status": "completed"
+  }
+}
+```
+
+## Artifact Gallery
+
+The dashboard provides two views for browsing artifacts:
+
+### Workspace Artifacts
+
+Navigate to a workspace and click **Artifacts** in the header. This shows all artifacts produced by workers in that workspace, sorted by creation date (newest first). Each artifact displays its type, title, associated task, and a link to its share page.
+
+Internal artifact types used by the system (`task_plan`, `impl_plan`) are filtered out — you only see deliverable artifacts.
+
+### Global Artifacts
+
+Navigate to **Artifacts** in the main navigation to see artifacts across all workspaces you have access to. This cross-workspace view includes the workspace name on each artifact for context.
+
+## Realtime Updates
+
+When an artifact is created, Buildd pushes realtime events via Pusher:
+
+- **Worker channel** — `worker:progress` event with the artifact data and share URL
+- **Workspace channel** — `worker:artifact` event for dashboard live updates
+
+This means the artifact gallery and task detail pages update instantly without polling.
+
+## Use Cases
+
+### Automated Reports
+
+Schedule a recurring task that analyzes data and produces a report artifact:
+
+```
+Task: "Generate weekly security scan report"
+→ Agent runs analysis
+→ Creates artifact (type: report) with findings
+→ Share URL posted to Slack via webhook
+```
+
+### Data Exports
+
+Agents working with APIs or databases can export structured results:
+
+```
+Task: "Audit API endpoints for deprecated fields"
+→ Agent scans OpenAPI spec
+→ Creates artifact (type: data) with JSON findings
+→ Stakeholders access formatted data via share link
+```
+
+### Executive Summaries
+
+After completing complex multi-step tasks, agents can produce a summary:
+
+```
+Task: "Migrate auth module to new provider"
+→ Agent completes migration, creates PR
+→ Creates artifact (type: summary) with migration recap
+→ Tech lead reviews summary without reading every commit
+```
+
+### Deploy Previews and External Links
+
+Agents that trigger deployments can capture the preview URL:
+
+```
+Task: "Deploy feature branch to staging"
+→ Agent pushes and triggers deploy
+→ Creates artifact (type: link) with staging URL
+→ QA team clicks through to test
+```
+
+## API Reference
+
+### Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/workers/{id}/artifacts` | API key | Create an artifact for a worker |
+| `GET` | `/api/workers/{id}/artifacts` | API key | List all artifacts for a worker |
+| `GET` | `/api/share/{token}` | None (public) | Fetch artifact by share token |
+
+### Create Artifact Request
+
+```
+POST /api/workers/{id}/artifacts
+Authorization: Bearer bld_xxx
+Content-Type: application/json
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | Yes | `content`, `report`, `data`, `link`, or `summary` |
+| `title` | string | Yes | Display title |
+| `content` | string | No | Markdown, JSON, or plain text body |
+| `url` | string | No | Target URL (required for `link` type) |
+| `metadata` | object | No | Arbitrary key-value metadata |
+
+**Validation rules:**
+- `type` must be one of the five deliverable types
+- `title` is required and must be a string
+- `url` is required when `type` is `link`
+
+### Artifact Object
+
+```json
+{
+  "id": "uuid",
+  "workerId": "uuid",
+  "type": "report",
+  "title": "Security Audit Report",
+  "content": "# Findings\n\n...",
+  "storageKey": null,
+  "shareToken": "xK9mP2qR7vLnW3...",
+  "metadata": {},
+  "createdAt": "2026-02-20T10:30:00Z",
+  "shareUrl": "https://buildd.dev/share/xK9mP2qR7vLnW3..."
+}
+```
+
+The `shareUrl` field is computed at response time and included in create responses. The `storageKey` field is reserved for future large-object storage support.
+
+### MCP Tool
+
+| Tool | Action | Access | Description |
+|------|--------|--------|-------------|
+| `buildd` | `create_artifact` | All users | Create an artifact with a shareable link |
+
+Parameters: `workerId` (required), `type` (required), `title` (required), `content`, `url`, `metadata`.
+
+Returns the artifact ID, title, type, and share URL.
