@@ -11,6 +11,7 @@
     "workspace-config",
     "mcp-server",
     "device-auth",
-    "attachments"
+    "attachments",
+    "artifacts"
   ]
 }
