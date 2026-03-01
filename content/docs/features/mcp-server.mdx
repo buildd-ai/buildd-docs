@@ -45,13 +45,20 @@ After login, restart Claude Code and the buildd tools will be available.
 
 The API key is read from `~/.buildd/config.json` automatically.
 
-**Remote (Streamable HTTP):**
+**Remote (HTTP):**
+
+```bash
+claude mcp add --transport http buildd https://buildd.dev/api/mcp \
+  --header "Authorization: Bearer bld_your_api_key"
+```
+
+Or manually in `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "buildd": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "https://buildd.dev/api/mcp",
       "headers": {
         "Authorization": "Bearer bld_your_api_key"
