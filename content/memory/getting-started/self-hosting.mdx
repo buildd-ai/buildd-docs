@@ -1,0 +1,101 @@
+---
+title: Self-Hosting
+description: Run your own Buildd Memory instance
+---
+
+# Self-Hosting
+
+Buildd Memory can be self-hosted on any platform that supports Node.js/Bun. It uses Postgres (Neon recommended) for storage.
+
+## Prerequisites
+
+- **Bun** (or Node.js 20+)
+- **Postgres** — [Neon](https://neon.tech) recommended for serverless deployments
+
+## Setup
+
+### 1. Clone and Install
+
+```bash
+git clone https://github.com/buildd-ai/memory.git
+cd memory
+bun install
+```
+
+### 2. Configure Environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your settings:
+
+```bash
+# Neon Postgres connection string
+DATABASE_URL=postgresql://user:pass@host/dbname?sslmode=require
+
+# Root API key — used to bootstrap team keys
+# Choose any strong secret (e.g., openssl rand -hex 32)
+ROOT_API_KEY=your_root_secret_here
+```
+
+### 3. Run Migrations
+
+```bash
+bun db:migrate
+```
+
+### 4. Start the Server
+
+```bash
+bun dev
+```
+
+The server starts on `http://localhost:3002` by default.
+
+## Deploy to Vercel
+
+```bash
+vercel
+```
+
+Set these environment variables in your Vercel project:
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | Neon Postgres connection string |
+| `ROOT_API_KEY` | Root key for bootstrapping team API keys |
+
+## Bootstrapping API Keys
+
+After deploying, use your root key to create team API keys:
+
+```bash
+curl -X POST https://your-instance.vercel.app/api/keys \
+  -H "Authorization: Bearer $ROOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "dev-team", "teamId": "my-team"}'
+```
+
+The response includes a `mem_xxx` key. Distribute this to your team's agents.
+
+See [API Keys Guide](/memory/guides/api-keys) for more on key management.
+
+## Architecture
+
+```
+buildd-memory/
+├── src/
+│   ├── app/api/          # REST API routes
+│   │   ├── memories/     # CRUD, search, batch, context
+│   │   ├── keys/         # API key management
+│   │   └── health/       # Health check
+│   ├── lib/
+│   │   ├── schema.ts     # Drizzle schema
+│   │   ├── db.ts         # Database client
+│   │   ├── auth.ts       # API key auth
+│   │   └── migrate.ts    # Migration runner
+│   └── mcp/
+│       └── server.ts     # MCP server (stdio)
+└── drizzle/              # Generated migrations
+```

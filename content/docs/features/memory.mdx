@@ -27,7 +27,7 @@ Every observation has a type that describes what kind of knowledge it captures:
 | Type | Purpose | Example |
 |------|---------|---------|
 | `gotcha` | Non-obvious bugs, traps, or footguns | "neon-http driver doesn't support interactive transactions — use atomic UPDATE...WHERE with .returning() instead" |
-| `pattern` | Recurring code conventions | "All API routes use authenticateRequest() helper that returns { type, account \| user }" |
+| `pattern` | Recurring code conventions | "All API routes use authenticateRequest() helper that returns `{ type, account or user }`" |
 | `decision` | Architectural choices and their rationale | "Chose Pusher over SSE for realtime because Vercel serverless can't hold connections" |
 | `discovery` | Learned behaviors, undocumented APIs | "Vercel preview deploys use a different DATABASE_URL than production — check env before running migrations" |
 | `architecture` | System structure and data flow | "Worker claim flow: POST /api/workers/claim → optimistic lock via UPDATE...WHERE status='pending' → return task + branch" |

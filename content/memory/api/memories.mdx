@@ -1,0 +1,228 @@
+---
+title: Memories
+description: Create, read, update, delete, and search memories
+---
+
+# Memories API
+
+All endpoints require authentication. See [Authentication](/memory/api/authentication).
+
+## Get Context
+
+Load all memories formatted as markdown for agent injection.
+
+```
+GET /api/memories/context
+```
+
+### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `project` | string | Filter by project name |
+
+### Response
+
+```json
+{
+  "markdown": "# Team Memories\n\n## Gotchas\n- ...",
+  "count": 12
+}
+```
+
+The `markdown` field contains pre-formatted content ready for injection into agent context.
+
+---
+
+## Search Memories
+
+Search memories with filters. Returns compact results (index only, no full content).
+
+```
+GET /api/memories/search
+```
+
+### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `query` | string | Text search query |
+| `type` | string | Filter by memory type |
+| `project` | string | Filter by project |
+| `files` | string | Filter by associated files (comma-separated) |
+| `limit` | number | Max results (default: 20) |
+| `offset` | number | Pagination offset |
+
+### Response
+
+```json
+{
+  "results": [
+    {
+      "id": "mem_abc123",
+      "title": "Neon doesn't support interactive transactions",
+      "type": "gotcha",
+      "project": "buildd",
+      "tags": ["database", "neon"],
+      "files": ["packages/core/db/schema.ts"]
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+## Batch Get
+
+Fetch full content for multiple memories by ID.
+
+```
+GET /api/memories/batch
+```
+
+### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ids` | string | Comma-separated memory IDs (max 20) |
+
+### Response
+
+```json
+{
+  "memories": [
+    {
+      "id": "mem_abc123",
+      "type": "gotcha",
+      "title": "Neon doesn't support interactive transactions",
+      "content": "Use atomic UPDATE...WHERE with .returning() instead.",
+      "project": "buildd",
+      "tags": ["database"],
+      "files": [],
+      "source": "mcp-agent",
+      "createdAt": "2025-01-15T00:00:00.000Z",
+      "updatedAt": "2025-01-15T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+## Create Memory
+
+```
+POST /api/memories
+```
+
+### Request Body
+
+```json
+{
+  "type": "gotcha",
+  "title": "API rate limits are per-key",
+  "content": "Rate limiting is applied per API key, not per IP address.",
+  "project": "buildd",
+  "tags": ["api", "rate-limiting"],
+  "files": ["src/middleware.ts"],
+  "source": "mcp-agent"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | Yes | One of: `gotcha`, `architecture`, `pattern`, `decision`, `discovery`, `summary` |
+| `title` | string | Yes | Short descriptive title |
+| `content` | string | Yes | Full memory content (markdown supported) |
+| `project` | string | No | Project name for scoping |
+| `tags` | string[] | No | Categorization tags |
+| `files` | string[] | No | Associated file paths |
+| `source` | string | No | Origin identifier (e.g., `mcp-agent`, `manual`) |
+
+### Response
+
+```json
+{
+  "memory": {
+    "id": "mem_abc123",
+    "title": "API rate limits are per-key"
+  }
+}
+```
+
+---
+
+## Get Memory
+
+```
+GET /api/memories/:id
+```
+
+### Response
+
+```json
+{
+  "memory": {
+    "id": "mem_abc123",
+    "type": "gotcha",
+    "title": "API rate limits are per-key",
+    "content": "Rate limiting is applied per API key, not per IP address.",
+    "project": "buildd",
+    "tags": ["api", "rate-limiting"],
+    "files": ["src/middleware.ts"],
+    "source": "mcp-agent",
+    "createdAt": "2025-01-15T00:00:00.000Z",
+    "updatedAt": "2025-01-15T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+## Update Memory
+
+```
+PATCH /api/memories/:id
+```
+
+### Request Body
+
+Include only the fields you want to update:
+
+```json
+{
+  "title": "Updated title",
+  "content": "Updated content",
+  "tags": ["updated-tag"]
+}
+```
+
+All fields from the create endpoint are supported except `type`.
+
+### Response
+
+```json
+{
+  "memory": {
+    "id": "mem_abc123",
+    "title": "Updated title"
+  }
+}
+```
+
+---
+
+## Delete Memory
+
+```
+DELETE /api/memories/:id
+```
+
+### Response
+
+```json
+{
+  "deleted": true
+}
+```

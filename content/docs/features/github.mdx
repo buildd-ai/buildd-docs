@@ -173,9 +173,9 @@ jobs:
         run: |
           # Use the Buildd API to claim the task
           curl -X POST https://buildd.dev/api/workers/claim \
-            -H "Authorization: Bearer ${{ secrets.BUILDD_API_KEY }}" \
+            -H "Authorization: Bearer $BUILDD_API_KEY" \
             -H "Content-Type: application/json" \
-            -d '{"workspaceId": "${{ github.event.client_payload.workspace_id }}"}'
+            -d "{\"workspaceId\": \"$WORKSPACE_ID\"}"
 ```
 
 ## PR Creation by Workers
@@ -223,7 +223,7 @@ Parameters:
 | `workerId` | Yes | The worker's ID (received when claiming the task) |
 | `title` | Yes | PR title — use conventional commit format if your repo requires it |
 | `head` | Yes | Source branch name containing the changes |
-| `body` | No | PR description (defaults to "Created by buildd worker {name}") |
+| `body` | No | PR description (defaults to "Created by buildd worker \{name\}") |
 | `base` | No | Target branch (see resolution chain above) |
 | `draft` | No | Create as draft PR (default: `false`) |
 
