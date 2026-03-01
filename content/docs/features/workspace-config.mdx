@@ -1,0 +1,107 @@
+---
+title: Workspace Configuration
+description: Git workflow, agent instructions, and permission settings per workspace
+---
+
+# Workspace Configuration
+
+Each workspace can be configured with git workflow settings, custom agent instructions, and permission controls. Configuration is stored as a JSON object (`gitConfig`) on the workspace.
+
+## Git Workflow Settings
+
+### Branching Strategy
+
+| Strategy | Description |
+|----------|-------------|
+| `none` | No branch management — worker uses current branch |
+| `trunk` | All work on the default branch |
+| `feature` | Feature branches from default branch |
+| `gitflow` | Develop/release/hotfix branches |
+| `custom` | Custom branching rules |
+
+Additional branch settings:
+
+- **`defaultBranch`** — the main branch name (`main`, `master`, `dev`, etc.)
+- **`branchPrefix`** — prefix for worker branches (e.g., `feature/`, `buildd/`)
+- **`useBuildBranch`** — use `buildd/task-{id}` naming convention
+
+### Commit Style
+
+| Style | Description |
+|-------|-------------|
+| `conventional` | Conventional commits (`feat:`, `fix:`, `chore:`, etc.) |
+| `freeform` | No enforced format |
+| `custom` | Custom commit message rules |
+
+Optional **`commitPrefix`** adds a prefix to all commit messages (e.g., `[JIRA-123]`).
+
+### PR Behavior
+
+- **`requiresPR`** — whether workers must create a PR before completing
+- **`targetBranch`** — which branch PRs should target (defaults to `defaultBranch`)
+- **`autoCreatePR`** — automatically create a PR when the worker completes
+
+## Agent Instructions
+
+### Custom Instructions
+
+The `agentInstructions` field contains free-form text that is prepended to the agent's system prompt. Use this for workspace-specific rules:
+
+```
+Always run tests before committing.
+Use the project's ESLint config — do not disable rules.
+Database migrations must be reviewed before merging.
+```
+
+### CLAUDE.md Support
+
+When `useClaudeMd` is `true` (default when a `CLAUDE.md` file exists in the repo), the agent loads project instructions from `CLAUDE.md` automatically. This works via the `settingSources: ['project']` option in the Claude Agent SDK.
+
+## Permission Bypass
+
+The `bypassPermissions` flag allows agents to skip interactive permission prompts during execution. When enabled:
+
+- File edits are auto-approved
+- Bash commands run without confirmation
+- Dangerous commands (rm -rf /, sudo, etc.) are still blocked regardless of this setting
+
+This is useful for fully autonomous execution in CI or trusted environments.
+
+## Configuration Object
+
+The full `WorkspaceGitConfig` shape:
+
+```typescript
+interface WorkspaceGitConfig {
+  // Branching
+  defaultBranch: string;
+  branchingStrategy: 'none' | 'trunk' | 'gitflow' | 'feature' | 'custom';
+  branchPrefix?: string;
+  useBuildBranch?: boolean;
+
+  // Commit conventions
+  commitStyle: 'conventional' | 'freeform' | 'custom';
+  commitPrefix?: string;
+
+  // PR/Merge behavior
+  requiresPR: boolean;
+  targetBranch?: string;
+  autoCreatePR: boolean;
+
+  // Agent instructions
+  agentInstructions?: string;
+  useClaudeMd: boolean;
+
+  // Permissions
+  bypassPermissions?: boolean;
+}
+```
+
+## Configuration Status
+
+Workspaces track a `configStatus` field:
+
+| Status | Meaning |
+|--------|---------|
+| `unconfigured` | Default — no git config has been set |
+| `admin_confirmed` | An admin has reviewed and confirmed the configuration |

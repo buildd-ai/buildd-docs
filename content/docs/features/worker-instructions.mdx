@@ -1,0 +1,95 @@
+---
+title: Worker Instructions
+description: Send real-time instructions to running workers
+---
+
+# Worker Instructions
+
+Admins can send instructions to workers while they are actively executing a task. Instructions are delivered on the worker's next progress update.
+
+## How It Works
+
+1. Admin sends an instruction via the dashboard or MCP server
+2. The instruction is stored in the worker's `pendingInstructions` field
+3. On the worker's next `buildd_update_progress` call, the instruction is included in the response
+4. The worker reads and acts on the instruction
+5. The instruction is cleared from `pendingInstructions` and logged to `instructionHistory`
+
+## Sending Instructions
+
+### Via MCP Server
+
+```bash
+buildd_send_instruction \
+  --workerId "worker-id" \
+  --message "Focus on the authentication module first, skip the UI changes for now"
+```
+
+### Via API
+
+```
+POST /api/workers/{workerId}/instruct
+Content-Type: application/json
+Authorization: Bearer bld_xxx
+
+{
+  "message": "Focus on the authentication module first"
+}
+```
+
+## Worker Response
+
+When a worker calls `buildd_update_progress`, the response includes any pending instructions:
+
+```json
+{
+  "ok": true,
+  "instructions": "Focus on the authentication module first"
+}
+```
+
+The MCP server surfaces this to the agent as:
+
+```
+**ADMIN INSTRUCTION:** Focus on the authentication module first
+```
+
+## Structured Instructions
+
+Instructions can be plain text or structured JSON for specific actions:
+
+### Request Plan
+
+```json
+{
+  "type": "request_plan",
+  "message": "Please submit a plan before continuing with the refactor"
+}
+```
+
+The worker receives this as a plan request and pauses to submit an implementation plan via `buildd_submit_plan`.
+
+## Instruction History
+
+All instructions and responses are logged in the `instructionHistory` array on the worker record:
+
+```json
+[
+  {
+    "type": "instruction",
+    "message": "Focus on auth module first",
+    "timestamp": 1707000000000
+  },
+  {
+    "type": "response",
+    "message": "Acknowledged, switching to auth module",
+    "timestamp": 1707000060000
+  }
+]
+```
+
+This history is visible in the dashboard for audit purposes.
+
+## Worker Termination
+
+If a worker has been reassigned or terminated by an admin, the next `buildd_update_progress` call returns a 409 Conflict response. The MCP server handles this by telling the agent to stop working immediately.
