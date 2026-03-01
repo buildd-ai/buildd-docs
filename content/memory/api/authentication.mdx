@@ -1,0 +1,66 @@
+---
+title: Authentication
+description: How to authenticate with the Buildd Memory API
+---
+
+# Authentication
+
+All Memory API endpoints require authentication via an API key.
+
+## Passing Your Key
+
+Include your API key in one of these headers:
+
+```
+Authorization: Bearer mem_your_key_here
+```
+
+or:
+
+```
+x-api-key: mem_your_key_here
+```
+
+Both methods are equivalent. Use whichever is more convenient for your client.
+
+## Key Types
+
+### Root Key
+
+The root key is set via the `ROOT_API_KEY` environment variable on the server. It has full access to all teams and can manage API keys.
+
+Use the root key only for:
+- Creating team API keys
+- Listing existing keys
+- Administrative operations
+
+### Team Keys
+
+Team keys are created via the [Keys API](/memory/api/keys) and are scoped to a specific team. All memories created with a team key are associated with that team.
+
+Team keys can:
+- Create, read, update, and delete memories
+- Search and load context
+- Access only their own team's data
+
+## Error Responses
+
+### 401 Unauthorized
+
+Returned when no key is provided or the key is invalid:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### 403 Forbidden
+
+Returned when the key doesn't have access to the requested resource:
+
+```json
+{
+  "error": "Forbidden"
+}
+```

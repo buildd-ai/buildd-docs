@@ -1,0 +1,179 @@
+---
+title: MCP Tools
+description: Reference for the Buildd Memory MCP tool actions
+---
+
+# MCP Tools
+
+The Memory MCP server exposes a single `memory` tool with six actions. The tool is designed for AI agents — it accepts an `action` and `params` object.
+
+## Setup
+
+Add to your `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["@buildd/memory"],
+      "env": {
+        "MEMORY_API_URL": "https://memory.buildd.dev",
+        "MEMORY_API_KEY": "mem_your_key_here"
+      }
+    }
+  }
+}
+```
+
+## Actions
+
+### `context`
+
+Load all team memories formatted as markdown. Call this at the start of every session.
+
+**Params:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project` | string | No | Filter memories by project |
+
+**Example:**
+
+```json
+{ "action": "context", "params": { "project": "my-app" } }
+```
+
+**Returns:** Formatted markdown with all relevant memories, or "(No memories yet)".
+
+---
+
+### `search`
+
+Search memories with filters. Returns compact index results (no full content).
+
+**Params:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | No | Text search query |
+| `type` | string | No | Filter by memory type |
+| `project` | string | No | Filter by project |
+| `files` | string | No | Filter by associated files |
+| `limit` | number | No | Max results |
+| `offset` | number | No | Pagination offset |
+
+**Example:**
+
+```json
+{ "action": "search", "params": { "query": "database", "type": "gotcha" } }
+```
+
+**Returns:** List of matching memories with titles, types, and IDs. Use `get` to fetch full content.
+
+---
+
+### `save`
+
+Save a new memory.
+
+**Params:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | Yes | `gotcha`, `architecture`, `pattern`, `decision`, `discovery`, or `summary` |
+| `title` | string | Yes | Short descriptive title |
+| `content` | string | Yes | Full memory content |
+| `project` | string | No | Project name |
+| `tags` | string[] | No | Categorization tags |
+| `files` | string[] | No | Associated file paths |
+| `source` | string | No | Origin identifier |
+
+**Example:**
+
+```json
+{
+  "action": "save",
+  "params": {
+    "type": "gotcha",
+    "title": "Don't use db.transaction() with Neon HTTP",
+    "content": "The neon-http driver doesn't support interactive transactions. Use atomic UPDATE...WHERE with .returning() instead.",
+    "project": "buildd",
+    "tags": ["database", "neon"]
+  }
+}
+```
+
+**Returns:** Confirmation with the saved memory's title and ID.
+
+---
+
+### `get`
+
+Fetch full content for a single memory.
+
+**Params:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Yes | Memory ID |
+
+**Example:**
+
+```json
+{ "action": "get", "params": { "id": "mem_abc123" } }
+```
+
+**Returns:** Full memory content including title, type, content, tags, files, and metadata.
+
+---
+
+### `update`
+
+Update an existing memory.
+
+**Params:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Yes | Memory ID to update |
+| `title` | string | No | New title |
+| `content` | string | No | New content |
+| `project` | string | No | New project |
+| `tags` | string[] | No | New tags |
+| `files` | string[] | No | New files |
+| `source` | string | No | New source |
+
+**Example:**
+
+```json
+{
+  "action": "update",
+  "params": {
+    "id": "mem_abc123",
+    "content": "Updated content with more detail."
+  }
+}
+```
+
+**Returns:** Confirmation with the updated memory's title.
+
+---
+
+### `delete`
+
+Delete a memory.
+
+**Params:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Yes | Memory ID to delete |
+
+**Example:**
+
+```json
+{ "action": "delete", "params": { "id": "mem_abc123" } }
+```
+
+**Returns:** Confirmation of deletion.

@@ -1,0 +1,109 @@
+---
+title: Agent Workflows
+description: Best practices for using Buildd Memory in AI agent workflows
+---
+
+# Agent Workflows
+
+How to integrate Buildd Memory effectively into your AI agent's workflow.
+
+## The Context → Work → Save Pattern
+
+The recommended workflow for agents using Memory:
+
+### 1. Load Context at Session Start
+
+At the beginning of every session, load relevant memories:
+
+```
+memory({ action: "context", params: { project: "my-project" } })
+```
+
+This returns all memories for the project formatted as markdown. Inject this into the agent's context so it starts with team knowledge.
+
+### 2. Search When Needed
+
+During work, search for specific memories when encountering unfamiliar code or making decisions:
+
+```
+memory({ action: "search", params: { query: "database transactions" } })
+```
+
+Use search to find:
+- Known gotchas before making changes
+- Architectural decisions that affect your approach
+- Patterns to follow for consistency
+
+### 3. Save What You Learn
+
+When you discover something important, save it immediately:
+
+```
+memory({
+  action: "save",
+  params: {
+    type: "gotcha",
+    title: "Neon HTTP driver doesn't support interactive transactions",
+    content: "Use atomic UPDATE...WHERE with .returning() for optimistic locking instead of db.transaction().",
+    project: "buildd",
+    tags: ["database", "neon", "drizzle"],
+    files: ["packages/core/db/schema.ts"]
+  }
+})
+```
+
+## What to Save
+
+**Do save:**
+- Gotchas that cost you time
+- Architectural decisions and their rationale
+- Patterns that are specific to this codebase
+- Non-obvious behavior you discovered
+- Key file paths and their purposes
+
+**Don't save:**
+- Obvious or well-documented behavior
+- Temporary workarounds
+- Session-specific context (current task, in-progress state)
+- Information that changes frequently
+
+## Using Tags and Files
+
+### Tags
+
+Use tags to categorize memories for better searchability:
+- Technology tags: `postgres`, `nextjs`, `drizzle`
+- Domain tags: `auth`, `billing`, `workers`
+- Scope tags: `frontend`, `backend`, `infrastructure`
+
+### Files
+
+Associate memories with specific files so agents working on those files get relevant context:
+- `files: ["src/lib/auth.ts"]` — Memory about the auth module
+- `files: ["packages/core/db/schema.ts"]` — Database schema gotchas
+
+## Multi-Project Setup
+
+Use the `project` field to organize memories by project:
+
+```
+// Save with project scope
+memory({
+  action: "save",
+  params: { type: "pattern", title: "...", content: "...", project: "buildd" }
+})
+
+// Load only that project's memories
+memory({ action: "context", params: { project: "buildd" } })
+```
+
+Without a project filter, `context` returns all team memories.
+
+## Team Coordination
+
+Memory works best when all agents on a team use the same API key. This means:
+- Agent A discovers a gotcha → saves it
+- Agent B starts a new session → loads context → sees the gotcha
+- Agent B avoids the same mistake
+
+The more consistently your agents save useful knowledge, the smarter the whole team becomes.

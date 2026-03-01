@@ -1,0 +1,75 @@
+---
+title: Memory Types
+description: Understanding when to use each memory type
+---
+
+# Memory Types
+
+Buildd Memory supports six structured types. Using the right type helps agents find and prioritize relevant memories.
+
+## Types
+
+### `gotcha`
+
+Things that are easy to get wrong. Use for pitfalls, common mistakes, and non-obvious behavior.
+
+**Examples:**
+- "The `db.transaction()` method doesn't work with neon-http driver"
+- "API rate limits are per-key, not per-IP"
+- "CSS modules don't support `:global` in nested selectors"
+
+### `architecture`
+
+System structure and design. Use for describing how components fit together, data flow, and system boundaries.
+
+**Examples:**
+- "Auth uses dual model: API keys (pay-per-token) and OAuth (seat-based)"
+- "Workers run externally — the API is coordination-only"
+- "Realtime updates flow through Pusher channels"
+
+### `pattern`
+
+Recurring code patterns. Use for established ways of doing things in your codebase.
+
+**Examples:**
+- "All API routes use `withAuth()` wrapper for authentication"
+- "Database queries use optimistic locking with `.returning()` instead of transactions"
+- "React components follow the compound component pattern"
+
+### `decision`
+
+Why something was done a certain way. Use for recording the reasoning behind technical choices.
+
+**Examples:**
+- "Chose Neon over Supabase for serverless connection pooling"
+- "Using Pusher instead of SSE because Vercel doesn't support long-lived connections"
+- "Opted for monorepo to share types between API and dashboard"
+
+### `discovery`
+
+New findings about the codebase. Use for things agents learn while working that others should know.
+
+**Examples:**
+- "The `proxy.ts` file handles all subdomain routing — it's a Next.js 16 feature"
+- "Seed scripts exist for all common test scenarios"
+- "The worker claim endpoint uses optimistic locking to prevent double-claims"
+
+### `summary`
+
+High-level overviews. Use for condensed descriptions of modules, features, or workflows.
+
+**Examples:**
+- "Task lifecycle: created → claimed → working → completed/failed"
+- "The dashboard has three main sections: tasks, workers, and settings"
+- "Deploy flow: push to dev → CI → auto-merge to main → Vercel deploy"
+
+## Choosing the Right Type
+
+| Situation | Type |
+|-----------|------|
+| "This doesn't work the way you'd expect" | `gotcha` |
+| "Here's how the system is structured" | `architecture` |
+| "This is how we do X in this codebase" | `pattern` |
+| "We chose X because Y" | `decision` |
+| "I just found out that..." | `discovery` |
+| "Here's the big picture of..." | `summary` |
