@@ -46,8 +46,8 @@ export function memoryBaseOptions(): BaseLayoutProps {
         active: 'none',
       },
       {
-        text: 'Memory App',
-        url: 'https://memory.buildd.dev',
+        text: 'Memory',
+        url: 'https://buildd.dev/memory',
         active: 'none',
       },
     ],

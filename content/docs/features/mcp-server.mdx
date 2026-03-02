@@ -146,27 +146,34 @@ buildd action=emit_event params={ workerId: "...", type: "deploy", label: "Deplo
 
 ### `buildd_memory` — Workspace Knowledge
 
+Backed by the [Buildd Memory service](https://buildd.dev/memory). Memories are scoped to the workspace via project.
+
 | Action | Key Params | Description |
 |--------|-----------|-------------|
-| `search` | `query?, type?, files?, concepts?, limit?` | Search observations |
-| `save` | `type, title, content, files?, concepts?` | Save a new observation |
-| `update` | `id, title?, content?, type?, files?, concepts?` | Update an existing observation |
-| `delete` | `id` | Delete an observation |
+| `context` | — | Load relevant memories for current project |
+| `search` | `query?, type?, files?, tags?, limit?` | Search memories |
+| `save` | `type, title, content, files?, tags?` | Save a new memory |
+| `get` | `id` | Retrieve a specific memory |
+| `update` | `id, title?, content?, type?, files?, tags?` | Update an existing memory |
+| `delete` | `id` | Delete a memory |
 
 #### Examples
 
 ```
+# Load project context
+buildd_memory action=context
+
 # Search for relevant context
 buildd_memory action=search params={ query: "drizzle migrations", type: "gotcha" }
 
-# Save an observation
+# Save a memory
 buildd_memory action=save params={ type: "gotcha", title: "neon-http no transactions", content: "..." }
 
-# Update a stale observation
-buildd_memory action=update params={ id: "obs_xxx", content: "Updated guidance..." }
+# Update a stale memory
+buildd_memory action=update params={ id: "mem_xxx", content: "Updated guidance..." }
 
-# Remove outdated observation
-buildd_memory action=delete params={ id: "obs_xxx" }
+# Remove outdated memory
+buildd_memory action=delete params={ id: "mem_xxx" }
 ```
 
 ## MCP Resources
@@ -176,7 +183,7 @@ The server exposes read-only resources that MCP clients can read directly:
 | URI | Description |
 |-----|-------------|
 | `buildd://tasks/pending` | Pending tasks sorted by priority |
-| `buildd://workspace/memory` | Recent workspace observations |
+| `buildd://workspace/memory` | Recent workspace memories |
 | `buildd://workspace/skills` | Available skills |
 
 ## Observability Events
@@ -196,7 +203,7 @@ The typical MCP workflow:
 2. **`buildd` action=claim_task** — claim a task, read the included memory
 3. **`git checkout <branch>`** — switch to the worker branch
 4. **`buildd_memory` action=search** — search for context on unfamiliar files
-5. Do the work, saving observations with **`buildd_memory` action=save** as you go
+5. Do the work, saving memories with **`buildd_memory` action=save** as you go
 6. **`buildd` action=update_progress** — report at milestones (check for admin instructions in response)
 7. **`git push`** — push your commits
 8. **`buildd` action=create_pr** — create a pull request (use this instead of `gh pr create`)

@@ -5,11 +5,13 @@ description: Persistent knowledge base that helps agents learn from past work
 
 # Workspace Memory
 
-A persistent knowledge base scoped to each workspace. Workers save observations as they encounter gotchas, make decisions, or discover patterns. Future workers search this memory before starting work, avoiding repeated mistakes and building on prior knowledge.
+A persistent knowledge base scoped to each workspace. Workers save memories as they encounter gotchas, make decisions, or discover patterns. Future workers search this memory before starting work, avoiding repeated mistakes and building on prior knowledge.
 
-## Observation Types
+Memory is backed by the [Buildd Memory service](https://buildd.dev/memory), with workspace memories scoped by project (workspace repo name).
 
-Each observation has a type that describes what kind of knowledge it captures:
+## Memory Types
+
+Each memory has a type that describes what kind of knowledge it captures:
 
 | Type | Purpose | Example |
 |------|---------|---------|
@@ -24,7 +26,17 @@ Each observation has a type that describes what kind of knowledge it captures:
 
 ### Automatic Memory on Claim
 
-When a worker claims a task via `buildd` action=claim_task, the server automatically searches memory using the task title and includes relevant observations in the response. Workers should read these before starting.
+When a worker claims a task via `buildd` action=claim_task, the server automatically searches memory using the task title and includes relevant memories in the response. Workers should read these before starting.
+
+### Loading Context
+
+Workers should load project context at the start of a session:
+
+```
+buildd_memory action=context
+```
+
+This returns a markdown digest of recent memories for the current project.
 
 ### Searching Before Work
 
@@ -37,16 +49,16 @@ buildd_memory action=search params={ type: "gotcha", files: ["packages/core/db/s
 
 Search supports:
 - **Text query** — full-text search across titles and content
-- **Type filter** — narrow to a specific observation type
-- **File filter** — find observations referencing specific file paths
-- **Concept filter** — search by tagged concepts
+- **Type filter** — narrow to a specific memory type
+- **File filter** — find memories referencing specific file paths
+- **Tag filter** — search by tagged concepts
 - **Limit** — control result count (default: 10, max: 50)
 
-Search returns full observation content inline — no separate fetch step needed.
+Search returns full memory content inline — no separate fetch step needed.
 
-### Saving Observations
+### Saving Memories
 
-Save observations immediately when you encounter something noteworthy — don't wait until the end of a task:
+Save memories immediately when you encounter something noteworthy — don't wait until the end of a task:
 
 ```
 buildd_memory action=save params={
@@ -54,56 +66,52 @@ buildd_memory action=save params={
   title: "db.transaction() fails with neon-http driver",
   content: "Interactive transactions are not supported by the neon-http driver. Use atomic UPDATE...WHERE with .returning() for optimistic locking instead.",
   files: ["packages/core/db/schema.ts"],
-  concepts: ["drizzle", "neon", "transactions"]
+  tags: ["drizzle", "neon", "transactions"]
 }
 ```
 
 Fields:
-- **type** (required) — one of the six observation types
+- **type** (required) — one of the six memory types
 - **title** (required) — short, descriptive title
 - **content** (required) — full details with context
 - **files** (optional) — related file paths for searchability
-- **concepts** (optional) — tags for categorization
+- **tags** (optional) — tags for categorization
 
-### Updating Observations
+### Updating Memories
 
-Correct stale or inaccurate observations:
+Correct stale or inaccurate memories:
 
 ```
 buildd_memory action=update params={
-  id: "obs_xxx",
+  id: "mem_xxx",
   content: "Updated: neon-http now supports transactions in v0.10+, but only with pool mode disabled."
 }
 ```
 
-Any field can be updated: `title`, `content`, `type`, `files`, `concepts`.
+Any field can be updated: `title`, `content`, `type`, `files`, `tags`.
 
-### Deleting Observations
+### Deleting Memories
 
-Remove outdated observations that are no longer relevant:
+Remove outdated memories that are no longer relevant:
 
 ```
-buildd_memory action=delete params={ id: "obs_xxx" }
+buildd_memory action=delete params={ id: "mem_xxx" }
 ```
 
 ## API Reference
 
-### Search Observations
+Memory is accessed through workspace proxy routes that forward to the memory service:
+
+### List / Search Memories
 
 ```
-GET /api/workspaces/{id}/observations/search?query=...&type=...&files=...&limit=10
+GET /api/workspaces/{id}/memory?query=...&type=...&limit=10
 ```
 
-### Get Full Details (batch)
+### Create Memory
 
 ```
-GET /api/workspaces/{id}/observations/batch?ids=id1,id2,id3
-```
-
-### Create Observation
-
-```
-POST /api/workspaces/{id}/observations
+POST /api/workspaces/{id}/memory
 Content-Type: application/json
 
 {
@@ -111,15 +119,14 @@ Content-Type: application/json
   "title": "Short title",
   "content": "Full details...",
   "files": ["path/to/file.ts"],
-  "concepts": ["tag1", "tag2"],
-  "workerId": "optional-worker-id"
+  "tags": ["tag1", "tag2"]
 }
 ```
 
-### Update Observation
+### Update Memory
 
 ```
-PATCH /api/workspaces/{id}/observations/{obsId}
+PATCH /api/workspaces/{id}/memory/{memoryId}
 Content-Type: application/json
 
 {
@@ -128,23 +135,25 @@ Content-Type: application/json
 }
 ```
 
-### Delete Observation
+### Delete Memory
 
 ```
-DELETE /api/workspaces/{id}/observations/{obsId}
+DELETE /api/workspaces/{id}/memory/{memoryId}
 ```
 
-All observation endpoints support dual authentication — both API key (Bearer token) and session auth.
+All memory endpoints support dual authentication — both API key (Bearer token) and session auth.
 
 ## MCP Server Usage
 
-The `buildd_memory` tool exposes four actions:
+The `buildd_memory` tool exposes six actions:
 
 | Action | Description |
 |--------|-------------|
-| `search` | Search observations by query, type, files, or concepts |
-| `save` | Save a new observation |
-| `update` | Update an existing observation by ID |
-| `delete` | Delete an observation by ID |
+| `context` | Load relevant memories for the current project |
+| `search` | Search memories by query, type, files, or tags |
+| `save` | Save a new memory |
+| `get` | Retrieve a specific memory by ID |
+| `update` | Update an existing memory by ID |
+| `delete` | Delete a memory by ID |
 
-Memory is also available as an MCP resource at `buildd://workspace/memory`, which returns the 20 most recent observations.
+Memory is also available as an MCP resource at `buildd://workspace/memory`, which returns recent memories for the workspace.
