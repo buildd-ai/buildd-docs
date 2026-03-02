@@ -14,7 +14,7 @@ Buildd is a **task coordination system** for AI coding agents. It enables you to
 
 ## Quick Links
 
-- [Local UI Setup](/docs/getting-started/local-ui) - Run tasks locally with a standalone worker
+- [Runner Setup](/docs/getting-started/runner) - Run tasks locally with a standalone worker
 - [MCP Server](/docs/features/mcp-server) - Claude Code integration
 - [Skills](/docs/features/skills) - Custom skills for agents
 - [Workspace Memory](/docs/features/memory) - Persistent knowledge base across tasks
@@ -32,7 +32,7 @@ Buildd separates coordination from execution:
 
 1. **Dashboard** (`apps/web`) - Create tasks, monitor progress, manage workspaces
 2. **API** (`/api/workers/*`) - Worker claim/update endpoints
-3. **Workers** - External processes (like Local UI or custom integrations) that execute tasks
+3. **Workers** - External processes (like the Runner or custom integrations) that execute tasks
 4. **MCP Server** (`apps/mcp-server`) - Claude Code integration
 
 The API is coordination-only. Workers run externally because Vercel can't handle multi-minute Claude executions.
