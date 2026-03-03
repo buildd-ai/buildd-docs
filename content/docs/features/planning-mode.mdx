@@ -49,14 +49,48 @@ The plan is submitted as markdown and stored on the worker. The worker status ch
 
 ### 3. Admin Reviews Plan
 
-The task author (or any admin) reviews the plan in the dashboard. They can:
+The task author (or any admin) reviews the plan in the dashboard or via the API/MCP.
 
-- **Approve** — the worker proceeds with implementation
-- **Reject with feedback** — the worker receives the feedback and can revise the plan
+#### Dashboard — Plan Review Panel
 
-### 4. Worker Implements
+When a planning task completes with a plan, the task detail page displays a **Plan Review Panel** showing each proposed step with its reference code, title, description, dependencies, and required capabilities. Two buttons are available:
 
-After approval, the worker implements according to the approved plan and completes the task normally.
+- **Approve Plan** — creates child execution tasks from the plan steps, with [dependencies](/docs/features/dependencies) wired automatically
+- **Reject Plan** — opens a feedback form; submitting creates a new planning task with the feedback attached for the agent to revise
+
+#### API
+
+```bash
+# Approve
+curl -X POST https://buildd.dev/api/tasks/{id}/approve-plan \
+  -H "Authorization: Bearer bld_xxx"
+
+# Reject
+curl -X POST https://buildd.dev/api/tasks/{id}/reject-plan \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "feedback": "Add error handling for the edge cases" }'
+```
+
+#### MCP (admin)
+
+```
+buildd action=approve_plan params={ taskId: "..." }
+buildd action=reject_plan params={ taskId: "...", feedback: "Add tests" }
+```
+
+### 4. Child Tasks Execute
+
+After approval, Buildd creates one child task per plan step using a two-pass approach:
+
+1. All tasks are created with the interpolated titles and descriptions
+2. Inter-step `dependsOn` references are resolved to actual task IDs
+
+Child tasks respect the `mode`, `priority`, and `outputRequirement` from each plan step. Workers claim and execute them like any other task, with [dependency blocking](/docs/features/dependencies) enforced automatically.
+
+### 5. Auto-Aggregation
+
+When **all child tasks** of a planning parent complete, Buildd automatically creates an aggregation task. This task collects the results from all children so a worker can produce a final summary or deliverable. Duplicate aggregation tasks are prevented — only one is created per planning parent.
 
 ## Requesting Plans Mid-Task
 
