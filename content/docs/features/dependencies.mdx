@@ -1,0 +1,90 @@
+---
+title: Task Dependencies
+description: Define execution order between tasks using dependency chains
+---
+
+# Task Dependencies
+
+Tasks can declare dependencies on other tasks, creating a directed acyclic graph (DAG) that controls execution order. A task with unresolved dependencies cannot be claimed by workers until all its dependencies are completed.
+
+## How It Works
+
+Each task has an optional `dependsOn` field — an array of task IDs that must reach `completed` status before the task becomes claimable.
+
+```bash
+# Create a task that depends on two others
+curl -X POST https://buildd.dev/api/tasks \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspaceId": "ws_xxx",
+    "title": "Deploy to staging",
+    "dependsOn": ["task-id-1", "task-id-2"]
+  }'
+```
+
+## Dashboard UI
+
+### Creating Dependencies
+
+Dependencies can be set in three places:
+
+- **New Task page** — expand "Advanced options" to reveal the dependency selector
+- **Edit Task modal** — open any task and use the dependency dropdown
+- **Quick Create modal** — dependency selector available when a workspace is selected
+
+The dependency selector is a searchable dropdown that shows all non-completed tasks in the workspace. Selected dependencies appear as removable chips with status indicators.
+
+### Viewing Dependencies
+
+On a task's detail page, the **Dependencies** section shows:
+
+- Each dependency as a clickable link to the parent task
+- A status badge (pending, in progress, completed, failed) next to each
+- A green checkmark with "All dependencies resolved" when all are complete
+
+### Sidebar Lock Icon
+
+Tasks with unresolved dependencies display a padlock icon in the sidebar task list. This provides a quick visual indicator of which tasks are blocked without opening each one.
+
+## Blocking Behavior
+
+When a worker calls `claim_task`, the system filters out any task whose `dependsOn` array contains IDs of tasks that are not yet `completed`. This means:
+
+- Blocked tasks remain in `pending` status but are invisible to the claim system
+- Once all dependencies complete, the task becomes available for the next claim
+- There is no automatic notification — workers discover newly unblocked tasks on their next claim attempt
+
+## Circular Dependency Detection
+
+The plan approval system (see [Planning Mode](/docs/features/planning-mode)) validates dependency graphs using depth-first search before creating child tasks. Circular dependencies are rejected with an error.
+
+## API Reference
+
+### Create Task
+
+```
+POST /api/tasks
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dependsOn` | `string[]` | Optional. Array of task IDs that must complete first |
+
+### Update Task
+
+```
+PATCH /api/tasks/{id}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dependsOn` | `string[]` | Replace the dependency list |
+
+### MCP
+
+Use `buildd action=update_task` with `dependsOn` to set dependencies programmatically:
+
+```
+buildd action=update_task params={ taskId: "...", dependsOn: ["task-1", "task-2"] }
+```

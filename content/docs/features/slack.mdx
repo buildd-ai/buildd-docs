@@ -1,0 +1,71 @@
+---
+title: Slack Integration
+description: Create and manage tasks from Slack using the /buildd slash command
+---
+
+# Slack Integration
+
+Connect Buildd to your Slack workspace to create tasks directly from conversations. Use the `/buildd` slash command to kick off planning tasks without leaving Slack.
+
+## Setup
+
+### 1. Create a Slack App
+
+Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new app for your workspace.
+
+Required scopes:
+- `commands` — for the `/buildd` slash command
+- `chat:write` — for sending notifications back to channels
+
+### 2. Configure the Slash Command
+
+In your Slack app settings, add a slash command:
+
+- **Command**: `/buildd`
+- **Request URL**: `https://buildd.dev/api/integrations/slack`
+- **Description**: Create a Buildd task
+
+### 3. Connect in Buildd
+
+Navigate to **Settings** in the Buildd dashboard. Find the **Slack Integration** section and configure:
+
+| Field | Description |
+|-------|-------------|
+| Team ID | Your Slack workspace/team ID |
+| Channel ID | Default channel for notifications |
+| Bot Token | Bot user OAuth token (`xoxb-...`) |
+| Enabled | Toggle the integration on/off |
+
+Click **Save** to persist the configuration.
+
+## Usage
+
+### Creating Tasks
+
+Type `/buildd` followed by a goal in any Slack channel:
+
+```
+/buildd research AI agent frameworks and summarize findings
+```
+
+This creates a **planning-mode** task in the workspace linked to your Slack team ID. The task includes context about who created it and from which Slack workspace.
+
+You'll receive an ephemeral confirmation message with the task details.
+
+### Thread Context
+
+When messages are posted in a thread that originated from a `/buildd` command, Buildd captures them as additional context on the task. This lets your team add clarifications or requirements after the initial task creation.
+
+## Security
+
+Buildd verifies every incoming request using Slack's signing secret:
+
+- Validates the `x-slack-signature` header using HMAC-SHA256
+- Checks the timestamp is within 5 minutes to prevent replay attacks
+- Rejects requests that fail verification with `401 Unauthorized`
+
+Set the `SLACK_SIGNING_SECRET` environment variable to your Slack app's signing secret.
+
+## Notifications
+
+When tasks complete or need attention, Buildd can send notifications back to Slack using the configured bot token. Notifications are fire-and-forget — failures don't block task execution.

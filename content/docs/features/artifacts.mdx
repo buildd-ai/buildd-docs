@@ -11,6 +11,8 @@ Each artifact gets a unique shareable URL that works without authentication — 
 
 ## Artifact Types
 
+### Core Types
+
 | Type | Purpose | Example |
 |------|---------|---------|
 | `content` | Rich markdown content — articles, documentation drafts, design specs | A blog post draft generated from research |
@@ -19,7 +21,41 @@ Each artifact gets a unique shareable URL that works without authentication — 
 | `link` | Curated external URL with context | A deployed preview URL, a relevant GitHub issue |
 | `summary` | Concise executive summary of work performed | Sprint recap, task completion digest |
 
+### Specialized Types
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| `email_draft` | Email content ready to send | Outreach email, status update to stakeholders |
+| `social_post` | Social media content | Twitter thread, LinkedIn post, announcement |
+| `analysis` | Deep-dive analysis with structured findings | Competitive analysis, codebase audit |
+| `recommendation` | Decision support with options and reasoning | Technology choice, architecture recommendation |
+| `alert` | Monitoring notification with severity | Infrastructure alert, security warning |
+| `calendar_event` | Calendar-ready event data | Meeting invite, deadline reminder |
+
 All types except `link` store their content directly in the `content` field. The `link` type requires a `url` parameter, stored in metadata, with optional `content` for descriptive context.
+
+## Artifact Templates
+
+Templates provide JSON schemas for structured artifact output. Workers can discover available templates and use them to produce consistently formatted deliverables.
+
+### Available Templates
+
+| Template | Type | Schema |
+|----------|------|--------|
+| `research_report` | `report` | `findings` (array with title/detail/confidence), `sources`, `summary` |
+| `decision_recommendation` | `recommendation` | `options` (array with name/pros/cons), `recommendation`, `reasoning` |
+| `content_draft` | `content` | `title`, `body`, `targetPlatform`, `metadata` |
+| `monitoring_alert` | `alert` | `severity` (critical/high/medium/low/info), `description`, `suggestedAction`, `source` |
+
+### Discovering Templates
+
+Workers can list available templates via MCP:
+
+```
+buildd action=list_artifact_templates
+```
+
+This returns all template definitions with their JSON schemas, enabling agents to produce structured output that matches the expected format.
 
 ## Creating Artifacts
 

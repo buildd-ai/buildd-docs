@@ -1,0 +1,154 @@
+---
+title: Task Recipes
+description: Reusable multi-step workflow templates with variables and dependency chains
+---
+
+# Task Recipes
+
+Recipes are reusable workflow templates that define a sequence of tasks with dependencies, modes, and variable placeholders. Run a recipe to instantly create a full task tree — no manual setup each time.
+
+## Concepts
+
+A recipe contains:
+
+- **Steps** — ordered task definitions with titles, descriptions, modes, and inter-step dependencies
+- **Variables** — template placeholders (`{{varName}}`) that get filled in at run time
+- **Category** — organizational label: `content`, `research`, `code`, `ops`, or `custom`
+
+## Creating a Recipe
+
+### Dashboard
+
+Navigate to a workspace and click the **Recipes** tab. Click **+ New Recipe** to open the recipe builder.
+
+The builder includes:
+
+- **Name and description** for the recipe itself
+- **Category selector** — color-coded badges in the recipe list
+- **Steps section** — add steps with title, description, mode (execution/planning), output requirement, and dependency toggles (each step can depend on any previous step)
+- **Variables section** — define template variables with a key, type (string/number/boolean), and description
+
+Steps can be reordered with up/down arrows and removed individually.
+
+### API
+
+```bash
+curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/recipes \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Feature Development",
+    "description": "Standard feature workflow",
+    "category": "code",
+    "steps": [
+      {
+        "ref": "plan",
+        "title": "Plan {{feature}}",
+        "description": "Investigate codebase and create implementation plan",
+        "mode": "planning"
+      },
+      {
+        "ref": "implement",
+        "title": "Implement {{feature}}",
+        "description": "Build the feature according to the approved plan",
+        "mode": "execution",
+        "dependsOn": ["plan"],
+        "outputRequirement": "pr_required"
+      },
+      {
+        "ref": "test",
+        "title": "Test {{feature}}",
+        "dependsOn": ["implement"],
+        "outputRequirement": "artifact_required"
+      }
+    ],
+    "variables": {
+      "feature": {
+        "type": "string",
+        "description": "Name of the feature to build"
+      }
+    }
+  }'
+```
+
+### MCP
+
+```
+buildd action=create_recipe params={
+  name: "Feature Development",
+  steps: [...],
+  variables: { feature: { type: "string" } }
+}
+```
+
+## Running a Recipe
+
+### Dashboard
+
+Click **Run** on any recipe card. A modal appears showing:
+
+- Step preview with numbered list and dependency indicators
+- Input fields for each variable defined in the recipe
+- Run and Cancel buttons
+
+On success, the modal shows links to all created tasks.
+
+### API
+
+```bash
+curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/recipes/{recipe-id}/run \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "variables": {
+      "feature": "user authentication"
+    }
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "tasks": ["task-id-1", "task-id-2", "task-id-3"]
+}
+```
+
+### How Instantiation Works
+
+1. **Variable interpolation** — all `{{varName}}` placeholders in step titles and descriptions are replaced with provided values
+2. **Pass 1** — creates all tasks with empty `dependsOn`
+3. **Pass 2** — resolves step `ref` references to actual task IDs and updates `dependsOn` on each task
+
+This two-pass approach ensures dependency references resolve correctly regardless of step order.
+
+## Step Schema
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ref` | string | Yes | Unique reference key for this step |
+| `title` | string | Yes | Task title (supports `{{variables}}`) |
+| `description` | string | No | Task description (supports `{{variables}}`) |
+| `mode` | string | No | `execution` (default) or `planning` |
+| `dependsOn` | string[] | No | Refs of steps this step depends on |
+| `outputRequirement` | string | No | `pr_required`, `artifact_required`, `none`, or `auto` |
+| `priority` | number | No | Task priority (1-5) |
+
+## API Reference
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/workspaces/{id}/recipes` | List all recipes |
+| `POST` | `/api/workspaces/{id}/recipes` | Create a recipe |
+| `GET` | `/api/workspaces/{id}/recipes/{recipeId}` | Get a recipe |
+| `PATCH` | `/api/workspaces/{id}/recipes/{recipeId}` | Update a recipe |
+| `DELETE` | `/api/workspaces/{id}/recipes/{recipeId}` | Delete a recipe |
+| `POST` | `/api/workspaces/{id}/recipes/{recipeId}/run` | Run a recipe |
+
+### MCP Tools (admin)
+
+| Action | Params | Description |
+|--------|--------|-------------|
+| `list_recipes` | `workspaceId?` | List reusable workflow recipes |
+| `create_recipe` | `name, steps, description?, category?, variables?` | Create a recipe |
+| `run_recipe` | `recipeId, variables?, parentTaskId?` | Instantiate recipe into tasks |
