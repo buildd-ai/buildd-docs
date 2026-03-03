@@ -48,6 +48,18 @@ You can also run the MCP server directly:
 MEMORY_API_URL=https://memory.buildd.dev MEMORY_API_KEY=mem_xxx npx @buildd/memory
 ```
 
+### HTTP Transport (Remote / Serverless)
+
+If you can't run a stdio process (e.g. remote agents, web apps, or serverless environments), use the HTTP MCP endpoint directly:
+
+```
+POST https://memory.buildd.dev/api/mcp
+Authorization: Bearer mem_your_key_here
+Content-Type: application/json
+```
+
+Send standard [MCP JSON-RPC](https://modelcontextprotocol.io) requests in the body. The endpoint is stateless and serverless-compatible — no persistent process needed. You can also authenticate with the `x-api-key` header instead of `Authorization: Bearer`.
+
 ## 3. Save Your First Memory
 
 Once connected, your agent has access to the `memory` tool. Try saving a memory:
