@@ -97,8 +97,7 @@ Available actions depend on your account level (detected automatically from your
 | `register_skill` | `name?, content?` | Register a workspace skill |
 | `approve_plan` | `taskId` | Approve a planning task and create child execution tasks |
 | `reject_plan` | `taskId, feedback` | Reject a plan with feedback, create revised planning task |
-| `manage_heartbeat` | `action, checklist?, workspaceId?` | Get or set workspace heartbeat checklist |
-| `create_heartbeat` | `cronExpression?, name?, workspaceId?` | Create a recurring heartbeat schedule |
+| `manage_objectives` | `action, objectiveId?, title?, status?` | Manage team objectives (list/create/get/update/delete/link_task/unlink_task) |
 | `list_recipes` | `workspaceId?` | List reusable workflow recipes |
 | `create_recipe` | `name, steps, description?, category?` | Create a workflow recipe |
 | `run_recipe` | `recipeId, variables?, parentTaskId?` | Instantiate a recipe into tasks |
