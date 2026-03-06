@@ -7,7 +7,13 @@ description: Persistent knowledge base that helps agents learn from past work
 
 A persistent knowledge base scoped to each workspace. Workers save memories as they encounter gotchas, make decisions, or discover patterns. Future workers search this memory before starting work, avoiding repeated mistakes and building on prior knowledge.
 
-Memory is backed by the [Buildd Memory service](https://buildd.dev/memory), with workspace memories scoped by project (workspace repo name).
+Memory is backed by the [Buildd Memory service](https://buildd.dev/memory). Each team gets an isolated memory store — memories are further scoped by project (workspace repo name) within the team. Memory keys are auto-provisioned on first use.
+
+## Setup
+
+Memory works out of the box — no configuration needed. When a team first uses memory (via MCP or API), Buildd automatically provisions an isolated memory API key for the team and stores it. All subsequent memory operations use this team-scoped key.
+
+**For self-hosted runners**: Memory is accessed through the Buildd API (`/api/workspaces/:id/memory`). As long as the Buildd server has `MEMORY_API_URL` and `MEMORY_ROOT_KEY` configured, memory auto-provisions for each team.
 
 ## Memory Types
 
