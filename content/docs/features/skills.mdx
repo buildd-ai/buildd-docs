@@ -88,7 +88,7 @@ Reference files are stored in the skill's `metadata.referenceFiles` field and de
 
 1. Navigate to your workspace
 2. Click **Skills** in the header
-3. Click **Register Skill**
+3. Click **New Skill**
 4. Fill in:
    - **Name** — Human-readable name (e.g., "Code Review Standards")
    - **Slug** — Auto-generated from name, editable (e.g., `code-review-standards`)
@@ -113,26 +113,6 @@ The agent calls `buildd_register_skill` behind the scenes. You can also browse e
 ```
 
 The agent calls `buildd_list_skills` and shows you what's registered.
-
-## Syncing Local Skills
-
-If you install community skills locally via `npx skills add <slug>` or `npx openskills install github:org/repo`, Buildd can discover those SKILL.md files on disk and register them to your workspace.
-
-### How It Works
-
-1. **Install skills locally** — Skills land in `.claude/skills/{slug}/SKILL.md` in your project directory
-2. **Open Local UI** — Navigate to the workspace management modal (click **Manage** next to the workspace selector)
-3. **Scan** — Click **Scan .claude/skills/** in the Local Skills section at the bottom
-4. **Review** — Each discovered skill shows its status:
-   - **New** (green) — Not yet registered in the workspace
-   - **Modified** (yellow) — Content differs from the registered version
-   - **Registered** (gray) — Already registered with matching content
-5. **Register** — Click **Register** on any new or modified skill. It lands in the workspace registry as **disabled by default** (pending admin review)
-6. **Admin enables** — From the dashboard Skills page, toggle the skill on after reviewing its content. Skills with `source: local_scan` and `enabled: false` show a **Pending Review** badge
-
-### Safety Model
-
-Scanned skills register as disabled to prevent any worker from injecting instructions into the shared workspace skill registry. Only workspace admins can enable skills from the dashboard — the existing enable/disable toggle handles this without any new approval workflow.
 
 ## Attaching Skills to Tasks
 
@@ -214,7 +194,7 @@ Find skills at:
 - [GitHub: openai/skills](https://github.com/openai/skills) — OpenAI's official skill packages
 - [SkillsMP](https://skillsmp.com) — 160k+ skills indexed from GitHub with security scanning
 
-You can also install community skills locally using CLI tools like `npx skills add` or `npx openskills install`, then register them in Buildd to share across your team.
+You can copy skill content directly into your workspace registry via the dashboard or MCP to share across your team.
 
 ### Git-Based Skill Development
 
@@ -286,7 +266,6 @@ For programmatic access, skills are managed through REST endpoints. Authenticati
 | `manual` | Created via dashboard, API, or MCP (default) |
 | `git` | Imported from a git repository |
 | `npm` | Installed from an npm package |
-| `local_scan` | Discovered from local `.claude/skills/` directory |
 
 ### MCP Tools
 
@@ -331,7 +310,7 @@ Skills are registered at the **team level** and shared across all workspaces in 
 Each workspace can have its own skills with additional controls:
 
 - **Enabled/disabled** — toggle skills per workspace without deleting
-- **Origin tracking** — `scan` (auto-discovered), `manual` (user-created), or `promoted` (from team registry)
+- **Origin tracking** — `manual` (user-created) or `promoted` (from team registry)
 - **Custom content** — workspace skills store their own copy of the SKILL.md content
 
 ### Registering via MCP
