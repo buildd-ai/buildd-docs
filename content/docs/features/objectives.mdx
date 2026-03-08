@@ -5,13 +5,13 @@ description: First-class goals that track progress across tasks and workspaces
 
 # Objectives
 
-Objectives are top-level goals that tasks can be linked to. They provide visibility into what agents are pursuing, track progress automatically, and can trigger recurring tasks via cron schedules.
+Objectives are top-level goals that tasks can be linked to. They provide visibility into what agents are pursuing, track progress automatically, and can trigger recurring tasks via cron schedules. Objectives are integrated throughout the UI — appearing in the task sidebar, dashboard, and task creation form.
 
 ## Creating Objectives
 
 ### Dashboard
 
-Navigate to **Objectives** in the bottom navigation. Type a goal and press Enter or click **Add**.
+Navigate to **Objectives** in the bottom navigation. Fill in the title, optional description, priority, workspace, and cron schedule, then submit the form.
 
 ### MCP
 
@@ -34,7 +34,7 @@ curl -X POST https://buildd.dev/api/objectives \
 
 ## Linking Tasks
 
-Tasks can be linked to objectives on creation or by updating existing tasks.
+Tasks can be linked to objectives on creation, by updating existing tasks, or automatically via inheritance.
 
 ```
 # Create a task linked to an objective
@@ -58,6 +58,12 @@ buildd action=manage_objectives params={
 }
 ```
 
+### Auto-Inheritance
+
+When an agent working on an objective-linked task creates child tasks via `create_task`, those children automatically inherit the parent's `objectiveId`. This keeps all related work connected to the objective without manual linking.
+
+Tasks linked to an objective display a lightning bolt indicator in the UI.
+
 ## Progress Tracking
 
 Progress is computed automatically from linked tasks:
@@ -66,7 +72,7 @@ Progress is computed automatically from linked tasks:
 progress = completedTasks / totalTasks * 100
 ```
 
-The objective detail page shows a progress bar, active tasks, and completed tasks.
+The objective detail page shows a progress bar, active tasks, and completed tasks. Progress is also visible in the task sidebar and dashboard summary card.
 
 ## Scheduled Objectives
 
@@ -82,6 +88,55 @@ buildd action=manage_objectives params={
 ```
 
 When `cronExpression` is set with a `workspaceId`, a [schedule](/docs/features/schedules) is auto-created. Tasks spawned by the schedule are automatically linked to the objective.
+
+Schedules can be edited inline on the objective detail page — update the cron expression, save, or remove the schedule without leaving the page.
+
+## Active Planning Loop
+
+Scheduled objectives support autonomous planning. When a cron-triggered task runs, the agent receives structured context including:
+
+- The objective's title and description
+- Task history (completed and active tasks)
+- Recipe playbook (if a recipe is bound)
+
+The planning agent assesses progress, identifies gaps, and creates follow-up execution tasks — all automatically linked to the objective.
+
+### Model Routing
+
+Objectives can specify which model to use for spawned tasks using short aliases:
+
+| Alias | Use case |
+|-------|----------|
+| `haiku` | Lightweight planning and triage |
+| `sonnet` | Balanced planning and execution |
+| `opus` | Complex reasoning and execution |
+
+```
+buildd action=manage_objectives params={
+  action: "create",
+  title: "Weekly security audit",
+  workspaceId: "ws_xxx",
+  cronExpression: "0 9 * * 1",
+  model: "sonnet"
+}
+```
+
+### Skills and Recipes
+
+Objectives can be configured with `skillSlugs` and a `recipeId` to bind structured workflows:
+
+```
+buildd action=manage_objectives params={
+  action: "create",
+  title: "Content pipeline",
+  workspaceId: "ws_xxx",
+  cronExpression: "0 8 * * *",
+  skillSlugs: ["content-writer", "seo-reviewer"],
+  recipeId: "recipe_xxx"
+}
+```
+
+When a recipe is bound, the planning agent uses its steps as a playbook for creating execution tasks.
 
 ## Objective Lifecycle
 
@@ -116,14 +171,23 @@ buildd action=manage_objectives params={
 
 Pinned objectives appear in the workspace detail page under the **Objectives** tab.
 
+## UI Integration
+
+Objectives surface throughout the dashboard:
+
+- **Task sidebar** — an objectives section displays progress bars, status indicators, and linked task counts for active objectives.
+- **Dashboard card** — a summary card shows objective status at a glance.
+- **Task creation form** — an objective picker lets you link new tasks to objectives directly.
+- **Task indicators** — tasks linked to an objective show a lightning bolt icon.
+
 ## Managing via MCP
 
 | Action | Params | Description |
 |--------|--------|-------------|
 | `list` | `workspaceId?, status?` | List objectives |
-| `create` | `title, description?, workspaceId?, cronExpression?, priority?` | Create objective |
+| `create` | `title, description?, workspaceId?, cronExpression?, priority?, skillSlugs?, recipeId?, model?` | Create objective |
 | `get` | `objectiveId` | Get objective with tasks and progress |
-| `update` | `objectiveId, title?, description?, status?, cronExpression?, priority?` | Update objective |
+| `update` | `objectiveId, title?, description?, status?, cronExpression?, priority?, skillSlugs?, recipeId?, model?` | Update objective |
 | `delete` | `objectiveId` | Delete objective (tasks preserved) |
 | `link_task` | `objectiveId, taskId` | Link a task to an objective |
 | `unlink_task` | `taskId` | Remove task from its objective |
@@ -145,7 +209,14 @@ Pinned objectives appear in the workspace detail page under the **Objectives** t
 curl -X POST https://buildd.dev/api/objectives \
   -H "Authorization: Bearer bld_xxx" \
   -H "Content-Type: application/json" \
-  -d '{ "title": "Ship v2.0", "description": "Complete all v2 features", "priority": 10 }'
+  -d '{
+    "title": "Ship v2.0",
+    "description": "Complete all v2 features",
+    "priority": 10,
+    "cronExpression": "0 9 * * 1",
+    "workspaceId": "ws_xxx",
+    "model": "sonnet"
+  }'
 
 # Response
 {
@@ -153,6 +224,8 @@ curl -X POST https://buildd.dev/api/objectives \
   "title": "Ship v2.0",
   "status": "active",
   "priority": 10,
+  "cronExpression": "0 9 * * 1",
+  "model": "sonnet",
   ...
 }
 
