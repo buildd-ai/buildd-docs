@@ -1,17 +1,16 @@
 {
   "title": "Features",
   "pages": [
-    "skills",
     "memory",
+    "skills",
+    "artifacts",
     "schedules",
     "planning-mode",
-    "worker-instructions",
-    "teams",
     "github",
+    "teams",
+    "worker-instructions",
     "workspace-config",
-    "mcp-server",
     "device-auth",
-    "attachments",
-    "artifacts"
+    "attachments"
   ]
 }

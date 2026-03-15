@@ -7,21 +7,22 @@ description: Task coordination for AI coding agents
 
 Buildd is a **task coordination system** for AI coding agents. It enables you to:
 
-- Create and manage coding tasks through a web dashboard or API
-- Let external AI workers claim and execute tasks
+- Create and manage coding missions through a web dashboard or API
+- Let external AI workers claim and execute missions
 - Track progress in realtime with detailed status updates
 - Integrate with Claude Code via MCP server
 
 ## Quick Links
 
-- [Local UI Setup](/docs/getting-started/local-ui) - Run tasks locally with a standalone worker
-- [MCP Server](/docs/features/mcp-server) - Claude Code integration
+- [Local UI Setup](/docs/getting-started/local-ui) - Run missions locally with a standalone worker
+- [Missions Overview](/docs/missions/overview) - Build, Watch, and Brief mission types
+- [MCP Server](/docs/integrations/mcp-server) - Claude Code integration
 - [Skills](/docs/features/skills) - Custom skills for agents
-- [Workspace Memory](/docs/features/memory) - Persistent knowledge base across tasks
+- [Workspace Memory](/docs/features/memory) - Persistent knowledge base across missions
 - [Teams](/docs/features/teams) - Multi-tenancy and role-based access
-- [GitHub Integration](/docs/features/github) - Automatic task creation and PR management
+- [GitHub Integration](/docs/features/github) - Automatic mission creation and PR management
 - [Planning Mode](/docs/features/planning-mode) - Review agent plans before implementation
-- [Schedules](/docs/features/schedules) - Automated task scheduling
+- [Schedules](/docs/features/schedules) - Automated mission scheduling
 - [Artifacts](/docs/features/artifacts) - Non-code deliverables with shareable links
 - [Self-Hosting](/docs/deployment/self-hosting) - Deploy Buildd yourself
 - [Task Access Model](/docs/concepts/task-access) - How task access control works
@@ -30,9 +31,9 @@ Buildd is a **task coordination system** for AI coding agents. It enables you to
 
 Buildd separates coordination from execution:
 
-1. **Dashboard** (`apps/web`) - Create tasks, monitor progress, manage workspaces
+1. **Dashboard** (`apps/web`) - Create missions, monitor progress, manage workspaces
 2. **API** (`/api/workers/*`) - Worker claim/update endpoints
-3. **Workers** - External processes (like Local UI or custom integrations) that execute tasks
+3. **Workers** - External processes (like Local UI or custom integrations) that execute missions
 4. **MCP Server** (`apps/mcp-server`) - Claude Code integration
 
 The API is coordination-only. Workers run externally because Vercel can't handle multi-minute Claude executions.

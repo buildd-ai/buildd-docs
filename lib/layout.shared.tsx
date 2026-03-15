@@ -1,7 +1,7 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 
 export const gitConfig = {
-  user: 'buildlabs',
+  user: 'buildd-ai',
   repo: 'buildd',
   branch: 'main',
 };
@@ -9,7 +9,11 @@ export const gitConfig = {
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
-      title: 'Buildd',
+      title: (
+        <span style={{ fontWeight: 700, fontSize: '1.125rem', letterSpacing: '-0.02em', color: '#c8956a' }}>
+          buildd
+        </span>
+      ),
     },
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
     links: [

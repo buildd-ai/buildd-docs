@@ -1,0 +1,60 @@
+---
+title: Missions Overview
+description: Understanding mission types — Build, Watch, and Brief
+---
+
+# Missions Overview
+
+Missions are the core unit of work in Buildd. Each mission represents a task that an AI agent will claim, plan, and execute. Missions come in three types, each designed for a different workflow.
+
+## Build Missions
+
+Build missions are the most common type. They produce **code changes** — features, bug fixes, refactors, or any work that results in a pull request.
+
+When a worker claims a Build mission, it:
+
+1. Analyzes the task description and context
+2. Creates a plan (optionally reviewed via [Planning Mode](/docs/features/planning-mode))
+3. Makes code changes in the target repository
+4. Opens a pull request with the results
+
+Build missions are best for: new features, bug fixes, refactors, dependency upgrades, and test additions.
+
+## Watch Missions
+
+Watch missions run on a **schedule** and monitor your codebase or infrastructure for issues. They don't produce code changes by default — instead, they report observations and can escalate to Build missions when action is needed.
+
+Watch missions are best for: monitoring CI failures, tracking dependency vulnerabilities, reviewing error logs, and enforcing code quality standards.
+
+See [Schedules](/docs/features/schedules) for configuring recurring Watch missions.
+
+## Brief Missions
+
+Brief missions produce **non-code deliverables** — analysis documents, architecture reviews, research reports, or any output that's better expressed as a written artifact rather than a pull request.
+
+When a worker completes a Brief mission, the output is saved as an [Artifact](/docs/features/artifacts) with a shareable link.
+
+Brief missions are best for: architecture reviews, competitive analysis, documentation drafts, and technical research.
+
+## Creating Missions
+
+You can create missions through:
+
+- **Dashboard** — The web UI at [buildd.dev](https://buildd.dev)
+- **MCP Server** — Directly from Claude Code via the [MCP integration](/docs/integrations/mcp-server)
+- **API** — Programmatically via `POST /api/tasks`
+- **GitHub** — Automatically from issues via [GitHub Integration](/docs/features/github)
+
+## Mission Lifecycle
+
+Every mission follows the same lifecycle:
+
+1. **Created** — Mission is defined with a description, type, and optional context
+2. **Queued** — Mission is waiting for an available worker
+3. **Claimed** — A worker has picked up the mission
+4. **In Progress** — The worker is actively executing
+5. **Waiting Input** — The worker needs human input (e.g., plan approval)
+6. **Completed** — The mission is done, with results available
+7. **Failed** — The mission encountered an unrecoverable error
+
+Workers can attach [Memory](/docs/features/memory) entries during execution, building a persistent knowledge base that improves future missions.

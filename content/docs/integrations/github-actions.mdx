@@ -1,0 +1,162 @@
+---
+title: GitHub Actions
+description: Run buildd tasks as CI workers using GitHub Actions and Claude Code
+---
+
+# GitHub Actions
+
+Run buildd tasks automatically on GitHub Actions. When a task is created, buildd dispatches a `repository_dispatch` event to your repo, triggering a workflow that uses `claude-code-action@v1` with the buildd MCP server.
+
+## Prerequisites
+
+- **Buildd GitHub App** installed and connected to your repo (see [GitHub integration](/docs/features/github) for setup)
+- **Workspace linked** to a GitHub repository
+- **Anthropic API key** for `claude-code-action`
+- **Buildd API key** for the MCP server (create one from the dashboard)
+
+## Quick Setup
+
+Add this workflow file to your repository at `.github/workflows/buildd-worker.yml`:
+
+```yaml
+name: Buildd Worker
+on:
+  repository_dispatch:
+    types: [buildd-task]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  run-task:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are a buildd CI worker. Use the buildd MCP tools to:
+            1. Claim a pending task (the dispatched task_id is: ${{ github.event.client_payload.task_id }})
+            2. Read the task details and do the work
+            3. Commit and push your changes
+            4. Create a PR via buildd MCP (create_pr action)
+            5. Mark the task complete (complete_task action)
+
+            Workspace: ${{ github.event.client_payload.workspace_id }}
+          claude_args: |
+            --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
+            --allowedTools mcp__buildd__buildd,mcp__buildd__buildd_memory,Bash,Read,Write,Edit,Glob,Grep
+```
+
+## How It Works
+
+1. **Task created** in buildd (dashboard, API, or GitHub issue with `buildd` label)
+2. **Buildd sends** a `repository_dispatch` event to the linked GitHub repo
+3. **GitHub Actions** triggers the workflow
+4. **`claude-code-action`** runs with the buildd MCP server connected
+5. **Agent claims** the task, does the work, creates a PR, and reports completion
+6. **Task status** updates in real-time on the buildd dashboard
+
+## Secrets Setup
+
+Add these secrets in your repository under **Settings > Secrets and variables > Actions**:
+
+| Secret | Description |
+|--------|-------------|
+| `ANTHROPIC_API_KEY` | Your Anthropic API key for Claude |
+| `BUILDD_API_KEY` | Your buildd API key (`bld_xxx`) from the dashboard |
+
+## Multi-Agent Workflows
+
+Run multiple agents in parallel using a matrix strategy. Each agent independently claims and works on a pending task from the workspace:
+
+```yaml
+jobs:
+  run-task:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        agent: [1, 2, 3]
+      max-parallel: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are buildd CI worker #${{ matrix.agent }}. Use the buildd MCP tools to:
+            1. Claim a pending task from the workspace
+            2. Do the work, commit, push, create PR
+            3. Mark the task complete
+          claude_args: |
+            --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
+            --allowedTools mcp__buildd__buildd,mcp__buildd__buildd_memory,Bash,Read,Write,Edit,Glob,Grep
+```
+
+## Dispatch Triggers
+
+The `repository_dispatch` event fires automatically when:
+
+- A task is created via the dashboard
+- A GitHub issue with the `buildd` or `ai` label is opened
+- A task is created via the API
+- A scheduled task fires
+
+The dispatch only fires if no local runner or webhook handler claims the task first. It serves as the fallback in the dispatch chain.
+
+## Customization
+
+### Limiting agent iterations
+
+Add `--max-turns` to `claude_args` to cap how many tool-call rounds the agent can take:
+
+```yaml
+claude_args: |
+  --max-turns 20
+  --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
+  --allowedTools mcp__buildd__buildd,mcp__buildd__buildd_memory,Bash,Read,Write,Edit,Glob,Grep
+```
+
+### Choosing a model
+
+Pass `--model` to select a specific Claude model:
+
+```yaml
+claude_args: |
+  --model claude-opus-4-6
+  --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
+  --allowedTools mcp__buildd__buildd,mcp__buildd__buildd_memory,Bash,Read,Write,Edit,Glob,Grep
+```
+
+### Workspace memory
+
+The `buildd_memory` MCP tool gives agents access to persistent workspace context. This is included in the `--allowedTools` list by default and lets agents read and store information that persists across tasks.
+
+### Adding CI steps
+
+You can add linting, testing, or other CI steps before or after the agent runs:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+
+  - name: Install dependencies
+    run: npm ci
+
+  - name: Run linter
+    run: npm run lint
+
+  - uses: anthropics/claude-code-action@v1
+    with:
+      anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+      prompt: |
+        You are a buildd CI worker. Use the buildd MCP tools to claim and complete the task.
+        The project dependencies are already installed and linting has passed.
+      claude_args: |
+        --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
+        --allowedTools mcp__buildd__buildd,mcp__buildd__buildd_memory,Bash,Read,Write,Edit,Glob,Grep
+```
