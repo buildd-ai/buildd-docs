@@ -1,0 +1,247 @@
+---
+title: Objectives
+description: First-class goals that track progress across tasks and workspaces
+---
+
+# Objectives
+
+Objectives are top-level goals that tasks can be linked to. They provide visibility into what agents are pursuing, track progress automatically, and can trigger recurring tasks via cron schedules. Objectives are integrated throughout the UI — appearing in the task sidebar, dashboard, and task creation form.
+
+## Creating Objectives
+
+### Dashboard
+
+Navigate to **Objectives** in the bottom navigation. Fill in the title, optional description, priority, workspace, and cron schedule, then submit the form.
+
+### MCP
+
+```
+buildd action=manage_objectives params={
+  action: "create",
+  title: "Improve API response times",
+  description: "Target p99 under 200ms for all endpoints"
+}
+```
+
+### API
+
+```bash
+curl -X POST https://buildd.dev/api/objectives \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "title": "Improve API response times" }'
+```
+
+## Linking Tasks
+
+Tasks can be linked to objectives on creation, by updating existing tasks, or automatically via inheritance.
+
+```
+# Create a task linked to an objective
+buildd action=create_task params={
+  title: "Profile slow endpoints",
+  description: "...",
+  objectiveId: "obj_xxx"
+}
+
+# Link an existing task
+buildd action=manage_objectives params={
+  action: "link_task",
+  objectiveId: "obj_xxx",
+  taskId: "task_xxx"
+}
+
+# Unlink a task
+buildd action=manage_objectives params={
+  action: "unlink_task",
+  taskId: "task_xxx"
+}
+```
+
+### Auto-Inheritance
+
+When an agent working on an objective-linked task creates child tasks via `create_task`, those children automatically inherit the parent's `objectiveId`. This keeps all related work connected to the objective without manual linking.
+
+Tasks linked to an objective display a lightning bolt indicator in the UI.
+
+## Progress Tracking
+
+Progress is computed automatically from linked tasks:
+
+```
+progress = completedTasks / totalTasks * 100
+```
+
+The objective detail page shows a progress bar, active tasks, and completed tasks. Progress is also visible in the task sidebar and dashboard summary card.
+
+## Scheduled Objectives
+
+Objectives can have a cron schedule that automatically creates tasks:
+
+```
+buildd action=manage_objectives params={
+  action: "create",
+  title: "Weekly code quality check",
+  workspaceId: "ws_xxx",
+  cronExpression: "0 9 * * 1"
+}
+```
+
+When `cronExpression` is set with a `workspaceId`, a [schedule](/docs/features/schedules) is auto-created. Tasks spawned by the schedule are automatically linked to the objective.
+
+Schedules can be edited inline on the objective detail page — update the cron expression, save, or remove the schedule without leaving the page.
+
+## Active Planning Loop
+
+Scheduled objectives support autonomous planning. When a cron-triggered task runs, the agent receives structured context including:
+
+- The objective's title and description
+- Task history (completed and active tasks)
+- Recipe playbook (if a recipe is bound)
+
+The planning agent assesses progress, identifies gaps, and creates follow-up execution tasks — all automatically linked to the objective.
+
+### Model Routing
+
+Objectives can specify which model to use for spawned tasks using short aliases:
+
+| Alias | Use case |
+|-------|----------|
+| `haiku` | Lightweight planning and triage |
+| `sonnet` | Balanced planning and execution |
+| `opus` | Complex reasoning and execution |
+
+```
+buildd action=manage_objectives params={
+  action: "create",
+  title: "Weekly security audit",
+  workspaceId: "ws_xxx",
+  cronExpression: "0 9 * * 1",
+  model: "sonnet"
+}
+```
+
+### Skills and Recipes
+
+Objectives can be configured with `skillSlugs` and a `recipeId` to bind structured workflows:
+
+```
+buildd action=manage_objectives params={
+  action: "create",
+  title: "Content pipeline",
+  workspaceId: "ws_xxx",
+  cronExpression: "0 8 * * *",
+  skillSlugs: ["content-writer", "seo-reviewer"],
+  recipeId: "recipe_xxx"
+}
+```
+
+When a recipe is bound, the planning agent uses its steps as a playbook for creating execution tasks.
+
+## Objective Lifecycle
+
+| Status | Description |
+|--------|-------------|
+| `active` | Default. Agents work on linked tasks. |
+| `paused` | Temporarily suspended. |
+| `completed` | Goal achieved. |
+| `archived` | Hidden from active views. |
+
+Transition between statuses via the detail page buttons or MCP:
+
+```
+buildd action=manage_objectives params={
+  action: "update",
+  objectiveId: "obj_xxx",
+  status: "completed"
+}
+```
+
+## Workspace Pinning
+
+Objectives are team-scoped by default (visible across all workspaces). Optionally pin to a specific workspace:
+
+```
+buildd action=manage_objectives params={
+  action: "create",
+  title: "Fix CI pipeline",
+  workspaceId: "ws_xxx"
+}
+```
+
+Pinned objectives appear in the workspace detail page under the **Objectives** tab.
+
+## UI Integration
+
+Objectives surface throughout the dashboard:
+
+- **Task sidebar** — an objectives section displays progress bars, status indicators, and linked task counts for active objectives.
+- **Dashboard card** — a summary card shows objective status at a glance.
+- **Task creation form** — an objective picker lets you link new tasks to objectives directly.
+- **Task indicators** — tasks linked to an objective show a lightning bolt icon.
+
+## Managing via MCP
+
+| Action | Params | Description |
+|--------|--------|-------------|
+| `list` | `workspaceId?, status?` | List objectives |
+| `create` | `title, description?, workspaceId?, cronExpression?, priority?, skillSlugs?, recipeId?, model?` | Create objective |
+| `get` | `objectiveId` | Get objective with tasks and progress |
+| `update` | `objectiveId, title?, description?, status?, cronExpression?, priority?, skillSlugs?, recipeId?, model?` | Update objective |
+| `delete` | `objectiveId` | Delete objective (tasks preserved) |
+| `link_task` | `objectiveId, taskId` | Link a task to an objective |
+| `unlink_task` | `taskId` | Remove task from its objective |
+
+## API Reference
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/objectives` | List objectives. Query: `?status=&workspaceId=` |
+| `POST` | `/api/objectives` | Create objective |
+| `GET` | `/api/objectives/{id}` | Get objective with linked tasks and progress |
+| `PATCH` | `/api/objectives/{id}` | Update objective fields |
+| `DELETE` | `/api/objectives/{id}` | Delete objective |
+
+### Request/Response
+
+```bash
+# Create objective
+curl -X POST https://buildd.dev/api/objectives \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Ship v2.0",
+    "description": "Complete all v2 features",
+    "priority": 10,
+    "cronExpression": "0 9 * * 1",
+    "workspaceId": "ws_xxx",
+    "model": "sonnet"
+  }'
+
+# Response
+{
+  "id": "...",
+  "title": "Ship v2.0",
+  "status": "active",
+  "priority": 10,
+  "cronExpression": "0 9 * * 1",
+  "model": "sonnet",
+  ...
+}
+
+# Get with progress
+curl https://buildd.dev/api/objectives/{id} \
+  -H "Authorization: Bearer bld_xxx"
+
+# Response
+{
+  "id": "...",
+  "title": "Ship v2.0",
+  "progress": 60,
+  "totalTasks": 5,
+  "completedTasks": 3,
+  "tasks": [...]
+}
+```
+
+Requires session auth or an **admin-level** API key.

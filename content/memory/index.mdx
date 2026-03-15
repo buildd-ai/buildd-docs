@@ -1,0 +1,33 @@
+---
+title: Buildd Memory
+description: Shared team memory for AI agents — Postgres-backed, MCP-native
+---
+
+# Buildd Memory
+
+Buildd Memory is a **shared team memory service** for AI agents. Unlike local-only memory tools, Memory is a hosted service that lets your entire team's agents share knowledge — gotchas, architectural decisions, patterns, and discoveries persist across sessions and machines.
+
+## Why Memory?
+
+- **Team-wide knowledge** — Every agent on your team benefits from what any single agent learns
+- **Persistent across sessions** — Memories survive restarts, new machines, and context resets
+- **MCP-native** — Works out of the box with Claude Code, Cursor, and any MCP-compatible client
+- **Structured types** — Categorize memories as gotchas, decisions, patterns, architecture, discoveries, or summaries
+- **Project-scoped** — Organize memories by project for relevant context loading
+
+## Quick Links
+
+- [Quickstart](/memory/getting-started/quickstart) — Get up and running in minutes
+- [Self-Hosting](/memory/getting-started/self-hosting) — Run your own instance
+- [Memory Types](/memory/guides/memory-types) — When to use each type
+- [API Reference](/memory/api/memories) — Full CRUD, search, and batch endpoints
+- [MCP Tools](/memory/mcp/tools) — MCP tool reference
+
+## How It Works
+
+1. **Connect** — Add the MCP server to your agent's config with your API key
+2. **Load context** — At session start, agents call `context` to load relevant memories
+3. **Save knowledge** — When agents discover something important, they save it as a memory
+4. **Search** — Agents search for specific memories when they need targeted knowledge
+
+Memories are stored in Postgres and served via a simple REST API. The MCP server wraps this API for seamless agent integration.

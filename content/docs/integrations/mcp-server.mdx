@@ -7,52 +7,18 @@ description: Claude Code integration via Model Context Protocol
 
 The Buildd MCP server integrates with Claude Code, providing task coordination and workspace memory directly in your coding workflow.
 
-Two connection modes are available:
-
-- **Local (stdio)** — runs as a subprocess, supports filesystem access for skill registration
-- **Remote (Streamable HTTP)** — connects over HTTP, no local installation needed
-
 ## Setup
 
-### Recommended: `buildd login`
-
-The easiest setup — auto-configures the local MCP server:
-
-```bash
-curl -fsSL https://buildd.dev/install.sh | bash
-buildd login
-```
-
-After login, restart Claude Code and the buildd tools will be available.
-
-### Alternative: Manual `.mcp.json`
-
-**Local (stdio):**
-
-```json
-{
-  "mcpServers": {
-    "buildd": {
-      "command": "bun",
-      "args": ["run", "~/.buildd/apps/mcp-server/src/index.ts"],
-      "env": {
-        "BUILDD_WORKSPACE": "optional-workspace-id"
-      }
-    }
-  }
-}
-```
-
-The API key is read from `~/.buildd/config.json` automatically.
-
-**Remote (HTTP):**
+### Option 1: CLI command
 
 ```bash
 claude mcp add --transport http buildd https://buildd.dev/api/mcp \
   --header "Authorization: Bearer bld_your_api_key"
 ```
 
-Or manually in `.mcp.json`:
+### Option 2: `.mcp.json`
+
+Add to your project's `.mcp.json`:
 
 ```json
 {
@@ -68,26 +34,31 @@ Or manually in `.mcp.json`:
 }
 ```
 
-The remote server does not support `filePath` or `repo` params for `register_skill` (no filesystem access). Use the `content` param instead.
+### Option 3: `buildd login`
 
-### Environment Variables
+If you use the buildd CLI, login auto-configures Claude Code:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `BUILDD_API_KEY` | Yes* | API key for authentication |
-| `BUILDD_SERVER` | No | Server URL (default: `https://buildd.dev`) |
-| `BUILDD_WORKSPACE_ID` | No | Force a specific workspace |
-| `BUILDD_WORKER_ID` | No | Worker context (set automatically when claiming tasks) |
+```bash
+curl -fsSL https://buildd.dev/install.sh | bash
+buildd login
+```
 
-\* Falls back to `apiKey` in `~/.buildd/config.json` if not set.
+Restart Claude Code and the buildd tools will be available.
+
+<Callout type="info">
+Get your API key from the [Buildd dashboard](https://app.buildd.dev) under Accounts.
+</Callout>
 
 ## Workspace Detection
 
-The MCP server automatically detects which workspace to use:
+The MCP server resolves the workspace from the URL:
 
-1. `BUILDD_WORKSPACE_ID` env var (highest priority)
-2. Git remote URL — reads `git remote get-url origin` and looks up the workspace by repo name
-3. No filter — operations that require a workspace will prompt for `workspaceId`
+1. `?workspace=<id>` query param — direct workspace ID
+2. `?repo=<name>` query param — matched against linked repositories
+3. `workspaceId` in tool params (per-action override)
+4. No filter — operations that require a workspace will prompt for `workspaceId`
+
+When using `buildd init <workspace-id>`, the workspace is baked into the MCP URL automatically.
 
 ## Tools
 
@@ -107,13 +78,14 @@ Available actions depend on your account level (detected automatically from your
 | `complete_task` | `workerId, summary?, error?` | Mark task done or failed |
 | `create_pr` | `workerId, title, head` | Create a GitHub PR tracked on the worker |
 | `update_task` | `taskId, title?, description?, priority?` | Update task fields or dependencies |
-| `create_task` | `title, description, workspaceId?` | Create a new task |
+| `create_task` | `title, description, workspaceId?, objectiveId?, skillSlugs?, model?, effort?` | Create a new task |
 | `create_artifact` | `workerId, type, title, content?` | Create a shareable artifact |
 | `list_artifacts` | `workspaceId?, key?, type?` | List workspace artifacts |
 | `update_artifact` | `artifactId, title?, content?` | Update an existing artifact |
 | `review_workspace` | `hoursBack?, workspaceId?` | Review recent task quality |
 | `emit_event` | `workerId, type, label, metadata?` | Record a custom milestone event |
 | `query_events` | `workerId, type?` | Read events from worker timeline |
+| `list_artifact_templates` | — | List available artifact templates with JSON schemas |
 
 #### Admin Actions (admin-level API key only)
 
@@ -122,7 +94,13 @@ Available actions depend on your account level (detected automatically from your
 | `create_schedule` | `name, cronExpression, title` | Create a recurring schedule |
 | `update_schedule` | `scheduleId, cronExpression?` | Update a schedule |
 | `list_schedules` | `workspaceId?` | List all schedules |
-| `register_skill` | `name?, content?, filePath?, repo?` | Register a workspace skill |
+| `register_skill` | `name?, content?` | Register a workspace skill |
+| `approve_plan` | `taskId` | Approve a planning task and create child execution tasks |
+| `reject_plan` | `taskId, feedback` | Reject a plan with feedback, create revised planning task |
+| `manage_objectives` | `action, objectiveId?, title?, status?, skillSlugs?, recipeId?, model?` | Manage team objectives (list/create/get/update/delete/link_task/unlink_task) |
+| `list_recipes` | `workspaceId?` | List reusable workflow recipes |
+| `create_recipe` | `name, steps, description?, category?` | Create a workflow recipe |
+| `run_recipe` | `recipeId, variables?, parentTaskId?` | Instantiate a recipe into tasks |
 
 #### Examples
 
@@ -146,27 +124,34 @@ buildd action=emit_event params={ workerId: "...", type: "deploy", label: "Deplo
 
 ### `buildd_memory` — Workspace Knowledge
 
+Backed by the [Buildd Memory service](https://buildd.dev/memory). Memories are isolated per team and scoped by project within each team.
+
 | Action | Key Params | Description |
 |--------|-----------|-------------|
-| `search` | `query?, type?, files?, concepts?, limit?` | Search observations |
-| `save` | `type, title, content, files?, concepts?` | Save a new observation |
-| `update` | `id, title?, content?, type?, files?, concepts?` | Update an existing observation |
-| `delete` | `id` | Delete an observation |
+| `context` | — | Load relevant memories for current project |
+| `search` | `query?, type?, files?, tags?, limit?` | Search memories |
+| `save` | `type, title, content, files?, tags?` | Save a new memory |
+| `get` | `id` | Retrieve a specific memory |
+| `update` | `id, title?, content?, type?, files?, tags?` | Update an existing memory |
+| `delete` | `id` | Delete a memory |
 
 #### Examples
 
 ```
+# Load project context
+buildd_memory action=context
+
 # Search for relevant context
 buildd_memory action=search params={ query: "drizzle migrations", type: "gotcha" }
 
-# Save an observation
+# Save a memory
 buildd_memory action=save params={ type: "gotcha", title: "neon-http no transactions", content: "..." }
 
-# Update a stale observation
-buildd_memory action=update params={ id: "obs_xxx", content: "Updated guidance..." }
+# Update a stale memory
+buildd_memory action=update params={ id: "mem_xxx", content: "Updated guidance..." }
 
-# Remove outdated observation
-buildd_memory action=delete params={ id: "obs_xxx" }
+# Remove outdated memory
+buildd_memory action=delete params={ id: "mem_xxx" }
 ```
 
 ## MCP Resources
@@ -176,7 +161,7 @@ The server exposes read-only resources that MCP clients can read directly:
 | URI | Description |
 |-----|-------------|
 | `buildd://tasks/pending` | Pending tasks sorted by priority |
-| `buildd://workspace/memory` | Recent workspace observations |
+| `buildd://workspace/memory` | Recent workspace memories |
 | `buildd://workspace/skills` | Available skills |
 
 ## Observability Events
@@ -196,7 +181,7 @@ The typical MCP workflow:
 2. **`buildd` action=claim_task** — claim a task, read the included memory
 3. **`git checkout <branch>`** — switch to the worker branch
 4. **`buildd_memory` action=search** — search for context on unfamiliar files
-5. Do the work, saving observations with **`buildd_memory` action=save** as you go
+5. Do the work, saving memories with **`buildd_memory` action=save** as you go
 6. **`buildd` action=update_progress** — report at milestones (check for admin instructions in response)
 7. **`git push`** — push your commits
 8. **`buildd` action=create_pr** — create a pull request (use this instead of `gh pr create`)

@@ -1,0 +1,69 @@
+---
+title: API Keys
+description: Creating and managing API keys for Buildd Memory
+---
+
+# API Keys
+
+Buildd Memory uses API keys for authentication. Keys are scoped to teams and can be created with different permission levels.
+
+## Key Format
+
+All API keys follow the format `mem_xxx` where `xxx` is a random string. Keys are hashed before storage — the plaintext is only shown once at creation time.
+
+## Root Key
+
+The root key (`ROOT_API_KEY` environment variable) is a special key used to bootstrap the system. It can:
+
+- Create new team API keys
+- Access all teams' data
+- Cannot be created or deleted via the API
+
+Set this to a strong secret when deploying. Use `openssl rand -hex 32` to generate one.
+
+## Creating Team Keys
+
+Use the root key to create team-scoped API keys:
+
+```bash
+curl -X POST https://memory.buildd.dev/api/keys \
+  -H "Authorization: Bearer $ROOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "dev-team", "teamId": "my-team"}'
+```
+
+Response:
+
+```json
+{
+  "key": {
+    "id": "key_abc123",
+    "name": "dev-team",
+    "teamId": "my-team",
+    "key": "mem_the_actual_key_value",
+    "createdAt": "2025-01-15T00:00:00.000Z"
+  }
+}
+```
+
+Save the `key` value — it won't be shown again.
+
+## Listing Keys
+
+```bash
+curl https://memory.buildd.dev/api/keys \
+  -H "Authorization: Bearer $ROOT_API_KEY"
+```
+
+This returns key metadata (ID, name, team) but not the plaintext keys.
+
+## Read-Only Keys
+
+Currently all keys have full read-write access. Read-only keys are on the roadmap.
+
+## Best Practices
+
+- **One key per team** — Share a single key across all agents on a team
+- **Rotate periodically** — Create a new key and update agent configs, then delete the old one
+- **Don't commit keys** — Use environment variables or secrets managers
+- **Use the root key sparingly** — Only for key management, not for agent access

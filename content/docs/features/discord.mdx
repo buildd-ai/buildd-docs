@@ -1,0 +1,89 @@
+---
+title: Discord Integration
+description: Create and manage tasks from Discord using the /buildd slash command
+---
+
+# Discord Integration
+
+Connect Buildd to your Discord server to create tasks with slash commands and interact with plans via button components.
+
+## Setup
+
+### 1. Create a Discord App
+
+Go to the [Discord Developer Portal](https://discord.com/developers/applications) and create a new application.
+
+Enable the bot and configure:
+- **Interactions Endpoint URL**: `https://buildd.dev/api/integrations/discord`
+- **Bot permissions**: Send Messages, Use Slash Commands, Embed Links
+
+### 2. Register the Slash Command
+
+Register the `/buildd` command for your application:
+
+```bash
+curl -X POST https://discord.com/api/v10/applications/{app-id}/commands \
+  -H "Authorization: Bot {bot-token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "buildd",
+    "description": "Create a Buildd task",
+    "options": [{
+      "name": "goal",
+      "description": "What should the agent do?",
+      "type": 3,
+      "required": true
+    }]
+  }'
+```
+
+### 3. Connect in Buildd
+
+Navigate to **Settings** in the Buildd dashboard. Find the **Discord** section and configure:
+
+| Field | Description |
+|-------|-------------|
+| Guild ID | Your Discord server ID |
+| Channel ID | Default channel for notifications |
+| Bot Token | Your bot's token (stored securely) |
+| Enabled | Toggle the integration on/off |
+
+The bot token field includes a show/hide toggle for security.
+
+## Usage
+
+### Creating Tasks
+
+Use the slash command in any channel where the bot is present:
+
+```
+/buildd goal: implement dark mode for the dashboard
+```
+
+Buildd responds with a rich embed containing:
+- Task title and description
+- Status indicator
+- Task ID for reference
+- Link to view the task in the dashboard
+
+The task is created in **planning mode** in the workspace linked to your Discord guild.
+
+### Plan Approval
+
+When a planning task completes with a proposed plan, Discord embeds include an **Approve** button. Clicking it approves the plan directly from Discord — the task transitions to execution mode and child tasks are created.
+
+## Security
+
+Buildd verifies every incoming interaction using Discord's Ed25519 signature scheme:
+
+- Validates `x-signature-ed25519` and `x-signature-timestamp` headers
+- Uses the `DISCORD_PUBLIC_KEY` environment variable for verification
+- Rejects invalid signatures with `401 Unauthorized`
+- Responds to Discord's PING verification automatically
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `DISCORD_PUBLIC_KEY` | Ed25519 public key from your Discord app |
+| `NEXT_PUBLIC_APP_URL` | App URL for task links (default: `https://buildd.dev`) |

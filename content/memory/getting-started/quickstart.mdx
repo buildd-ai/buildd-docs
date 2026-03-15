@@ -1,0 +1,96 @@
+---
+title: Quickstart
+description: Get Buildd Memory running with your AI agents in minutes
+---
+
+# Quickstart
+
+Get Buildd Memory connected to your AI agents in under 5 minutes.
+
+## 1. Get an API Key
+
+Generate an API key at [buildd.dev/memory](https://buildd.dev/memory#quickstart). Your key will look like `mem_xxx`.
+
+If you're self-hosting, see [Self-Hosting](/memory/getting-started/self-hosting) to set up your own instance and create keys via the root API key.
+
+## 2. Add the MCP Server
+
+Add Memory to your agent's MCP configuration. This works with Claude Code, Cursor, and any MCP-compatible client.
+
+### Claude Code
+
+Add to your project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["@buildd/memory"],
+      "env": {
+        "MEMORY_API_URL": "https://memory.buildd.dev",
+        "MEMORY_API_KEY": "mem_your_key_here"
+      }
+    }
+  }
+}
+```
+
+### Cursor
+
+Add the same configuration to your Cursor MCP settings.
+
+### Direct Execution
+
+You can also run the MCP server directly:
+
+```bash
+MEMORY_API_URL=https://memory.buildd.dev MEMORY_API_KEY=mem_xxx npx @buildd/memory
+```
+
+### HTTP Transport (Remote / Serverless)
+
+If you can't run a stdio process (e.g. remote agents, web apps, or serverless environments), use the HTTP MCP endpoint directly:
+
+```
+POST https://memory.buildd.dev/api/mcp
+Authorization: Bearer mem_your_key_here
+Content-Type: application/json
+```
+
+Send standard [MCP JSON-RPC](https://modelcontextprotocol.io) requests in the body. The endpoint is stateless and serverless-compatible — no persistent process needed. You can also authenticate with the `x-api-key` header instead of `Authorization: Bearer`.
+
+## 3. Save Your First Memory
+
+Once connected, your agent has access to the `memory` tool. Try saving a memory:
+
+```
+Use the memory tool to save a gotcha:
+- type: gotcha
+- title: "API rate limits are per-key, not per-IP"
+- content: "Rate limiting is applied per API key. Multiple agents sharing a key share the rate limit."
+```
+
+## 4. Load Context
+
+At the start of any session, load existing memories:
+
+```
+Use the memory tool with action "context" to load relevant memories.
+```
+
+This returns all memories formatted as markdown, ready for your agent to use.
+
+## 5. Search Memories
+
+Find specific memories when needed:
+
+```
+Use the memory tool to search for memories about "rate limit"
+```
+
+## Next Steps
+
+- [Memory Types](/memory/guides/memory-types) — Learn when to use each memory type
+- [Agent Workflows](/memory/guides/agent-workflows) — Best practices for agent memory usage
+- [API Reference](/memory/api/memories) — Use the REST API directly
