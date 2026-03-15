@@ -1,8 +1,9 @@
 {
   "title": "Features",
   "pages": [
-    "skills",
     "memory",
+    "skills",
+    "artifacts",
     "schedules",
     "planning-mode",
     "dependencies",
@@ -14,9 +15,7 @@
     "slack",
     "discord",
     "workspace-config",
-    "mcp-server",
     "device-auth",
-    "attachments",
-    "artifacts"
+    "attachments"
   ]
 }

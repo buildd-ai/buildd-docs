@@ -1,3 +1,99 @@
 @import 'tailwindcss';
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
+
+/* ── Warm Charcoal / Copper Theme ── */
+
+/* Light mode: still warm, but readable */
+@theme {
+  --color-fd-background: #f5f0eb;
+  --color-fd-foreground: #1a1816;
+  --color-fd-muted: #e8e2db;
+  --color-fd-muted-foreground: #5e5850;
+  --color-fd-popover: #f0ebe5;
+  --color-fd-popover-foreground: #1a1816;
+  --color-fd-card: #ece6df;
+  --color-fd-card-foreground: #1a1816;
+  --color-fd-border: rgba(90, 80, 70, 0.15);
+  --color-fd-primary: #b07d55;
+  --color-fd-primary-foreground: #fff5ea;
+  --color-fd-secondary: #e8e2db;
+  --color-fd-secondary-foreground: #1a1816;
+  --color-fd-accent: rgba(176, 125, 85, 0.12);
+  --color-fd-accent-foreground: #8b6240;
+  --color-fd-ring: #c8956a;
+  --color-fd-overlay: rgba(26, 24, 22, 0.3);
+}
+
+/* Dark mode: primary theme */
+.dark {
+  --color-fd-background: #1a1816;
+  --color-fd-foreground: #ede8e2;
+  --color-fd-muted: #2a2724;
+  --color-fd-muted-foreground: #a89f96;
+  --color-fd-popover: #211f1c;
+  --color-fd-popover-foreground: #ede8e2;
+  --color-fd-card: #2a2724;
+  --color-fd-card-foreground: #ede8e2;
+  --color-fd-border: rgba(255, 245, 230, 0.07);
+  --color-fd-primary: #c8956a;
+  --color-fd-primary-foreground: #1a1816;
+  --color-fd-secondary: #2a2724;
+  --color-fd-secondary-foreground: #ede8e2;
+  --color-fd-accent: rgba(200, 149, 106, 0.15);
+  --color-fd-accent-foreground: #ede8e2;
+  --color-fd-ring: #c8956a;
+  --color-fd-overlay: rgba(0, 0, 0, 0.4);
+}
+
+/* Dark sidebar overrides */
+.dark #nd-sidebar {
+  --color-fd-muted: #211f1c;
+  --color-fd-secondary: #2a2724;
+  --color-fd-muted-foreground: #a89f96;
+}
+
+/* Code block styling */
+.dark pre:not(.not-fumadocs-codeblock *) {
+  background-color: #211f1c !important;
+  border: 1px solid rgba(255, 245, 230, 0.07);
+}
+
+/* Warm scrollbar */
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(200, 149, 106, 0.2) !important;
+}
+
+/* Links in prose should use copper */
+.dark .prose a:not(.not-prose *) {
+  color: #c8956a;
+}
+
+.dark .prose a:not(.not-prose *):hover {
+  color: #d4a57a;
+}
+
+/* Search dialog warm styling */
+.dark [data-search-dialog] {
+  background-color: #211f1c;
+  border-color: rgba(255, 245, 230, 0.07);
+}
+
+/* Code font: IBM Plex Mono */
+code, kbd, pre, samp {
+  font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
+}
+
+/* Inline code warm styling */
+.dark :not(pre) > code {
+  background-color: #2a2724;
+  border: 1px solid rgba(255, 245, 230, 0.07);
+  color: #d4a57a;
+}
+
+/* Nav/header warm chrome */
+.dark #nd-nav {
+  background-color: rgba(21, 19, 15, 0.8);
+  backdrop-filter: blur(12px);
+  border-color: rgba(255, 245, 230, 0.07);
+}

@@ -1,4 +1,4 @@
 {
   "title": "Documentation",
-  "pages": ["index", "getting-started", "features", "concepts", "deployment"]
+  "pages": ["index", "getting-started", "missions", "features", "integrations", "concepts", "deployment"]
 }
