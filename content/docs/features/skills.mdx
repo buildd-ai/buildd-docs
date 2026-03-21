@@ -223,6 +223,73 @@ A few principles for skills that actually improve agent success rates:
 5. **Keep it under 5k tokens** — If your skill is longer, split into a main SKILL.md and reference files
 6. **Test empirically** — Give an agent nothing but your skill and a task. Did it succeed? If not, the doc is the bug.
 
+## Roles — Agent Personas
+
+Skills can be promoted to **roles** by setting `isRole: true`. A role is a skill with additional agent configuration:
+
+| Field | Description |
+|-------|-------------|
+| `model` | Which Claude model to use (`opus`, `sonnet`, `haiku`, or `inherit`) |
+| `allowedTools` | Tool restrictions (empty = all tools). Options: `Read`, `Write`, `Edit`, `Bash`, `Grep`, `Glob`, `WebSearch`, `WebFetch`, `Agent`, `NotebookEdit` |
+| `canDelegateTo` | Slugs of other roles this agent can create tasks for |
+| `mcpServers` | MCP server configurations with `${VAR}` interpolation for secrets |
+| `requiredEnvVars` | Maps env var names to secret labels for credential injection |
+| `color` | Hex color for the role's avatar in the dashboard |
+
+Roles appear on the **Team** page with live activity (current task, status, duration). Tasks can be routed to a specific role via `roleSlug` — only workers advertising that role will claim the task.
+
+### Example Role
+
+A "Builder" role with the buildd MCP server, all code tools, and the ability to delegate research:
+
+```json
+{
+  "name": "Builder",
+  "slug": "builder",
+  "isRole": true,
+  "content": "# Builder\n\nYou ship features, fix bugs, and manage releases...",
+  "model": "inherit",
+  "color": "#D4724A",
+  "allowedTools": ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "WebSearch", "WebFetch"],
+  "canDelegateTo": ["researcher"],
+  "mcpServers": {
+    "buildd": {
+      "type": "http",
+      "url": "https://buildd.dev/api/mcp",
+      "headers": { "Authorization": "Bearer ${BUILDD_API_KEY}" }
+    }
+  },
+  "requiredEnvVars": { "BUILDD_API_KEY": "buildd-api-key" }
+}
+```
+
+MCP server configs use `${VAR}` syntax — the actual secret values are stored encrypted in the [secrets system](/docs/concepts/secrets) and injected at claim time.
+
+### Managing Roles via MCP
+
+```
+# List all roles
+buildd action=list_skills params={ isRole: true }
+
+# Update a role's MCP servers and delegation
+buildd action=update_skill params={ slug: "builder", mcpServers: {...}, canDelegateTo: ["researcher"] }
+
+# Create a new role
+buildd action=register_skill params={ name: "Ops", isRole: true, content: "...", mcpServers: {...} }
+
+# Delete a role
+buildd action=delete_skill params={ slug: "ops" }
+```
+
+### Default Roles
+
+New workspaces are automatically seeded with two starter roles:
+
+- **Builder** — All code tools, buildd MCP, delegates to researcher
+- **Researcher** — Read/search tools, buildd MCP, delegates to builder
+
+These provide immediate value out of the box. Add more roles as your team grows.
+
 ## API Reference
 
 For programmatic access, skills are managed through REST endpoints. Authentication works with both session cookies (dashboard) and API keys (`Bearer bld_xxx`).
@@ -231,8 +298,8 @@ For programmatic access, skills are managed through REST endpoints. Authenticati
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/workspaces/{id}/skills` | List skills. `?enabled=true` to filter. |
-| `POST` | `/api/workspaces/{id}/skills` | Create a skill. Requires `name` and `content`. |
+| `GET` | `/api/workspaces/{id}/skills` | List skills. `?enabled=true&isRole=true` to filter. |
+| `POST` | `/api/workspaces/{id}/skills` | Create/upsert a skill by slug. Requires `name` and `content`. |
 | `GET` | `/api/workspaces/{id}/skills/{skillId}` | Get a single skill with full content. |
 | `PATCH` | `/api/workspaces/{id}/skills/{skillId}` | Update skill fields. |
 | `DELETE` | `/api/workspaces/{id}/skills/{skillId}` | Delete a skill. |
@@ -269,11 +336,13 @@ For programmatic access, skills are managed through REST endpoints. Authenticati
 
 ### MCP Tools
 
-| Tool | Access | Description |
-|------|--------|-------------|
-| `buildd_list_skills` | All users | List enabled skills in workspace |
-| `buildd_register_skill` | Admin | Create a new skill |
-| `buildd_create_task` | All users | Accepts `skills` array parameter |
+| Action | Access | Description |
+|--------|--------|-------------|
+| `list_skills` | Admin | List skills/roles with filtering (`enabled`, `isRole`) |
+| `register_skill` | Admin | Create or upsert a skill/role by slug |
+| `update_skill` | Admin | Update any field by slug (MCPs, tools, delegation, etc.) |
+| `delete_skill` | Admin | Delete a skill/role by slug |
+| `create_task` | All users | Accepts `skillSlugs` and `roleSlug` parameters |
 
 ### Creating a Skill (API)
 

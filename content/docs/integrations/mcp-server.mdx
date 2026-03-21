@@ -91,13 +91,17 @@ Available actions depend on your account level (detected automatically from your
 
 | Action | Key Params | Description |
 |--------|-----------|-------------|
+| `register_skill` | `name, content, slug?, isRole?, model?, mcpServers?, allowedTools?, canDelegateTo?, requiredEnvVars?` | Create/upsert a skill or role |
+| `list_skills` | `workspaceId?, enabled?, isRole?` | List skills/roles with filtering |
+| `update_skill` | `slug, workspaceId?, name?, content?, mcpServers?, allowedTools?, canDelegateTo?, enabled?` | Update a skill/role by slug |
+| `delete_skill` | `slug, workspaceId?` | Delete a skill/role by slug |
+| `manage_secrets` | `action (list/set/delete), label?, value?, secretId?` | Manage encrypted MCP credentials |
 | `create_schedule` | `name, cronExpression, title` | Create a recurring schedule |
 | `update_schedule` | `scheduleId, cronExpression?` | Update a schedule |
 | `list_schedules` | `workspaceId?` | List all schedules |
-| `register_skill` | `name?, content?` | Register a workspace skill |
 | `approve_plan` | `taskId` | Approve a planning task and create child execution tasks |
 | `reject_plan` | `taskId, feedback` | Reject a plan with feedback, create revised planning task |
-| `manage_objectives` | `action, objectiveId?, title?, status?, skillSlugs?, recipeId?, model?` | Manage team objectives (list/create/get/update/delete/link_task/unlink_task) |
+| `manage_missions` | `action, missionId?, title?, status?, skillSlugs?, recipeId?, model?` | Manage team missions (list/create/get/update/delete/link_task/unlink_task) |
 | `list_recipes` | `workspaceId?` | List reusable workflow recipes |
 | `create_recipe` | `name, steps, description?, category?` | Create a workflow recipe |
 | `run_recipe` | `recipeId, variables?, parentTaskId?` | Instantiate a recipe into tasks |
