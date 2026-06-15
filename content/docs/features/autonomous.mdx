@@ -1,0 +1,140 @@
+---
+title: Autonomous Workflow
+description: Auto-merge, requiresReview opt-in, mission dormancy, and progress tracking
+---
+
+# Autonomous Workflow
+
+Buildd is autonomous by default. Agent PRs merge automatically on green CI, missions self-complete when their work is done, and progress tracking excludes housekeeping tasks so the number you see reflects real work. You opt out of automation selectively — per task or per mission — rather than opting in.
+
+## Auto-Merge on Green CI
+
+When an agent creates a PR, Buildd automatically merges it once all CI checks pass (type check, build, tests). After merge, a release is triggered automatically.
+
+This is on by default for every workspace.
+
+### Disabling auto-merge
+
+To require human review of every agent PR in a workspace, turn off auto-merge in **Settings → Git → Auto-merge agent PRs**.
+
+This applies workspace-wide. To hold individual PRs instead, use `requiresReview` on the task (see below).
+
+## requiresReview Opt-In
+
+`requiresReview: true` holds a PR open for human review before it can merge. Use it when a task or mission produces changes that warrant a manual look.
+
+### On a task
+
+Set `requiresReview` on task create or update:
+
+```bash
+# MCP
+buildd action=create_task params={
+  "title": "Refactor auth middleware",
+  "description": "...",
+  "requiresReview": true
+}
+
+# API
+curl -X POST https://buildd.dev/api/tasks \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "title": "Refactor auth middleware", "requiresReview": true }'
+```
+
+The agent creates the PR as usual, but Buildd does not merge it. A **Needs Review** badge appears on the task and the PR in the dashboard.
+
+You can also set it on an existing task before the PR is created:
+
+```bash
+buildd action=update_task params={
+  "taskId": "task_xxx",
+  "requiresReview": true
+}
+```
+
+Via the dashboard: open the task detail page → toggle **Require review** in the task settings panel.
+
+### On a mission
+
+Set `requiresReview` on a mission to hold every PR created by that mission's tasks:
+
+```bash
+# MCP — create mission with review required
+buildd action=manage_missions params={
+  "action": "create",
+  "title": "Q3 API hardening",
+  "requiresReview": true
+}
+
+# MCP — update existing mission
+buildd action=manage_missions params={
+  "action": "update",
+  "missionId": "mission_xxx",
+  "requiresReview": true
+}
+
+# API
+curl -X POST https://buildd.dev/api/missions \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "title": "Q3 API hardening", "requiresReview": true }'
+```
+
+`requiresReview` on a mission also gates mission completion: the mission will not auto-close until you confirm it in the dashboard (see [Mission dormancy](#mission-dormancy--auto-complete) below).
+
+## Mission Dormancy / Auto-Complete
+
+Missions monitor their own task health and close themselves when the work is done. You do not need to manually close a mission.
+
+### How it works
+
+A mission is eligible to close when:
+
+1. All deliverable tasks are **completed** with merged PRs.
+2. No tasks are actively in progress.
+
+When both conditions are true, the mission status transitions to `completed` and the heartbeat schedule pauses automatically.
+
+### requiresReview gate
+
+If the mission was created with `requiresReview: true`, auto-close is suspended. The mission enters a **dormant** state and waits for a human to confirm completion in the dashboard:
+
+1. Open the mission detail page.
+2. Review the completed tasks and merged PRs.
+3. Click **Close mission** to confirm.
+
+Until you confirm, the heartbeat continues checking in, but it will not create new tasks.
+
+## Mission Progress (Deliverables Only)
+
+The progress percentage shown on a mission counts only **deliverable tasks** — tasks that produce real output (engineering work, research, design). Orchestration and housekeeping tasks are excluded.
+
+### What counts
+
+| Task category | Counted |
+|---------------|---------|
+| `feature`, `bug`, `refactor`, `test`, `infra`, `design`, `docs` | Yes |
+| Coordination, aggregation cycles, heartbeat planning | No |
+
+This means a mission whose real work is done shows **100%** even if there are failed or ongoing heartbeat cycles. The percentage reflects outcome, not operational overhead.
+
+### Why this matters
+
+A multi-phase mission typically includes:
+
+- Execution tasks that build or fix things (deliverables)
+- Planning/heartbeat tasks that coordinate the work (housekeeping)
+
+Without this distinction, a single failed heartbeat cycle would drag a complete mission below 100%. Buildd excludes housekeeping tasks so progress always reflects the state of the actual work.
+
+## Summary
+
+| Feature | Default | Override |
+|---------|---------|----------|
+| Auto-merge agent PRs | On | Settings → Git to disable workspace-wide |
+| Release after merge | On | Workspace release config |
+| requiresReview (task) | Off | `requiresReview: true` on task create/update |
+| requiresReview (mission) | Off | `requiresReview: true` on mission create/update |
+| Mission auto-complete | On | Suspended when `requiresReview: true` |
+| Progress % counts | Deliverables only | Not configurable |
