@@ -14,79 +14,47 @@ Use this when:
 
 ## One-Time Setup
 
-### 1. Log in on a trusted machine
+Connecting your Codex account takes about two minutes and happens entirely in the Buildd UI — no file management or server configuration needed.
 
-Run the device-auth login flow on a machine where you have a browser:
+### 1. Get your auth.json
+
+On any machine with the Codex CLI installed, run the device-code login flow:
 
 ```bash
 codex login --device-auth
 ```
 
-Follow the prompted URL, sign in with the account that holds your ChatGPT plan, and approve the device. The CLI writes credentials to:
+Follow the prompted URL, sign in with the account that holds your ChatGPT plan, and approve the device. The CLI writes credentials to `~/.codex/auth.json`. Copy the **full contents** of that file (it's a JSON object with `access_token`, `refresh_token`, `account_id`, and `expires_in`).
 
-```
-~/.codex/auth.json
-```
+### 2. Paste into Settings
 
-This file contains your OAuth tokens. It does **not** need to be regenerated unless tokens are revoked.
+1. Open **Buildd** → **Settings** → your workspace → **Codex** section
+2. Paste the `auth.json` contents into the text field
+3. Click **Connect**
 
-### 2. Point the runner at auth.json
+Buildd stores the tokens encrypted in its database. The status indicator changes to **Connected** immediately.
 
-Set `CODEX_HOME` to the **directory** containing `auth.json` on your runner machine:
+That's it. No `CODEX_HOME` to configure, no files to mount. Runners receive the credential automatically at task claim time and clean it up after the task exits.
 
-```bash
-# ~/.buildd/config.json (or env var)
-CODEX_HOME=/home/runner/.codex bun start
-```
+## Token Refresh
 
-Or in `~/.buildd/config.json`:
+Buildd refreshes your Codex tokens automatically before they expire. The refresh runs server-side using a rotation guard that prevents concurrent refresh races. If a refresh fails, the status changes to **Expired** and a banner appears in the workspace settings — paste a fresh `auth.json` to reconnect.
 
-```json
-{
-  "codexHome": "/home/runner/.codex"
-}
-```
+You can also trigger a manual refresh from the Codex section in Settings → **Refresh token**.
 
-The runner reads `$CODEX_HOME/auth.json` at task start. If the variable is unset, it defaults to `~/.codex`.
+## Disconnecting
+
+To remove the credential, click **Disconnect** in Settings → Codex. This deletes the encrypted tokens from the database immediately. Any in-flight Codex tasks will complete using the tokens they received at claim time.
 
 ## Security
 
-`auth.json` contains long-lived OAuth tokens. Handle it like a private key:
+Buildd encrypts tokens at rest using AES-256-GCM (the same key used for all other workspace secrets). Tokens are:
 
-- **Never commit it** to any repository, public or private
-- **Never hard-code the path** in GitHub Actions workflows or CI config files
-- **Inject at runtime** using one of:
-  - A secrets manager (1Password, Vault, AWS Secrets Manager) that writes the file to a known path before the runner starts
-  - A mounted secret volume (Docker, Kubernetes) at `/run/secrets/codex/auth.json`
-  - A CI environment variable containing the JSON, written to disk by an init script
+- **Never logged** — only the workspace ID and last-refreshed timestamp appear in server logs
+- **Scoped to your workspace** — no other workspace can access your credential, even within the same team
+- **Short-lived in the runner** — the runner writes tokens to a temp directory (`mode 0700`, auth.json `mode 0600`) for the duration of one task, then deletes it in a `finally` block
 
-Example Kubernetes secret mount:
-
-```yaml
-volumes:
-  - name: codex-auth
-    secret:
-      secretName: codex-auth-json
-volumeMounts:
-  - name: codex-auth
-    mountPath: /run/secrets/codex
-    readOnly: true
-env:
-  - name: CODEX_HOME
-    value: /run/secrets/codex
-```
-
-## Fallback to API Key
-
-When the ChatGPT plan window is exhausted or `auth.json` is absent, the Codex backend automatically falls back to the **OpenAI API**. Set `OPENAI_API_KEY` as an environment variable on the runner:
-
-```bash
-OPENAI_API_KEY=sk-... bun start
-```
-
-The runner checks for `auth.json` first. If the file is missing or tokens are invalid, it falls through to `OPENAI_API_KEY`. Tasks keep running — they just bill against the API key instead of your plan quota.
-
-You can pre-set the key even when `auth.json` is present. The plan quota is consumed first; the key only activates as a fallback.
+You do not need to manually handle `auth.json` files on your runner machines.
 
 ## Concurrent Execution
 
