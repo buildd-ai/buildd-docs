@@ -1,0 +1,110 @@
+---
+title: Codex Backend
+description: Run tasks on ChatGPT plan quota using the Codex backend instead of the Anthropic API
+---
+
+# Codex Backend
+
+The Codex backend lets workers execute tasks using your **ChatGPT plan quota** instead of paying per-token on the Anthropic API. When a task has `backend: codex` set, the runner routes it through OpenAI's Codex agent (backed by GPT-4o and o3) instead of Claude.
+
+Use this when:
+- Your team has an active ChatGPT Plus/Pro/Team/Enterprise plan and wants to use that quota for engineering tasks
+- You want to reduce Anthropic API costs by routing some workloads through your existing OpenAI subscription
+- Tasks are suitable for GPT-4o or o3 (research, code generation, analysis)
+
+## One-Time Setup
+
+### 1. Log in on a trusted machine
+
+Run the device-auth login flow on a machine where you have a browser:
+
+```bash
+codex login --device-auth
+```
+
+Follow the prompted URL, sign in with the account that holds your ChatGPT plan, and approve the device. The CLI writes credentials to:
+
+```
+~/.codex/auth.json
+```
+
+This file contains your OAuth tokens. It does **not** need to be regenerated unless tokens are revoked.
+
+### 2. Point the runner at auth.json
+
+Set `CODEX_HOME` to the **directory** containing `auth.json` on your runner machine:
+
+```bash
+# ~/.buildd/config.json (or env var)
+CODEX_HOME=/home/runner/.codex bun start
+```
+
+Or in `~/.buildd/config.json`:
+
+```json
+{
+  "codexHome": "/home/runner/.codex"
+}
+```
+
+The runner reads `$CODEX_HOME/auth.json` at task start. If the variable is unset, it defaults to `~/.codex`.
+
+## Security
+
+`auth.json` contains long-lived OAuth tokens. Handle it like a private key:
+
+- **Never commit it** to any repository, public or private
+- **Never hard-code the path** in GitHub Actions workflows or CI config files
+- **Inject at runtime** using one of:
+  - A secrets manager (1Password, Vault, AWS Secrets Manager) that writes the file to a known path before the runner starts
+  - A mounted secret volume (Docker, Kubernetes) at `/run/secrets/codex/auth.json`
+  - A CI environment variable containing the JSON, written to disk by an init script
+
+Example Kubernetes secret mount:
+
+```yaml
+volumes:
+  - name: codex-auth
+    secret:
+      secretName: codex-auth-json
+volumeMounts:
+  - name: codex-auth
+    mountPath: /run/secrets/codex
+    readOnly: true
+env:
+  - name: CODEX_HOME
+    value: /run/secrets/codex
+```
+
+## Fallback to API Key
+
+When the ChatGPT plan window is exhausted or `auth.json` is absent, the Codex backend automatically falls back to the **OpenAI API**. Set `OPENAI_API_KEY` as an environment variable on the runner:
+
+```bash
+OPENAI_API_KEY=sk-... bun start
+```
+
+The runner checks for `auth.json` first. If the file is missing or tokens are invalid, it falls through to `OPENAI_API_KEY`. Tasks keep running — they just bill against the API key instead of your plan quota.
+
+You can pre-set the key even when `auth.json` is present. The plan quota is consumed first; the key only activates as a fallback.
+
+## Concurrent Execution
+
+Codex tasks are **automatically serialized** — only one Codex task runs at a time per workspace. This is enforced by the runner and requires no configuration.
+
+The limit exists because ChatGPT plans have a **5-hour rolling usage window**. Running multiple tasks in parallel would exhaust the window faster without completing more work. Serializing tasks keeps throughput predictable and avoids mid-task quota failures.
+
+If multiple Codex tasks are pending, they queue behind the active one and start as soon as it finishes.
+
+## Sandbox Modes
+
+The Codex backend applies a sandbox policy based on task type:
+
+| Task type | Default sandbox | File access |
+|-----------|-----------------|-------------|
+| Research / analysis | `read-only` | Can read files, cannot write or run commands |
+| Engineering / code | `workspace-write` | Can read and write within the workspace directory |
+
+The sandbox mode is chosen automatically from the task's category. You can override it by setting `sandboxMode` in the task's metadata if your workflow requires a different policy.
+
+Read-only mode is appropriate for tasks that only need to inspect the codebase or external data. Workspace-write mode is required for tasks that modify files, run builds, or apply patches.
