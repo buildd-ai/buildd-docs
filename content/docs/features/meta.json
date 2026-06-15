@@ -9,6 +9,7 @@
     "dependencies",
     "recipes",
     "objectives",
+    "autonomous",
     "worker-instructions",
     "teams",
     "github",
