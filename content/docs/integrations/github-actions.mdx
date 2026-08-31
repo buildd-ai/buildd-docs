@@ -49,8 +49,25 @@ jobs:
             Workspace: ${{ github.event.client_payload.workspace_id }}
           claude_args: |
             --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
-            --allowedTools mcp__buildd__buildd,mcp__buildd__buildd_memory,Bash,Read,Write,Edit,Glob,Grep
+            --allowedTools mcp__buildd__buildd,mcp__buildd__recall,mcp__buildd__learn,mcp__buildd__check_path_claim,Bash,Read,Write,Edit,Glob,Grep
 ```
+
+<Callout type="warn">
+  `--allowedTools` is an **allowlist**: a buildd tool you do not name here cannot
+  be called, and the agent gets no error explaining why — the tool simply is not
+  there. The current knowledge tools are `recall` and `learn`, so both must be
+  listed. Earlier versions of this page listed only the legacy
+  `mcp__buildd__buildd_memory`, which left CI agents unable to read or write team
+  memory at all.
+
+  `mcp__buildd__buildd_memory` is still callable and is the only MCP path with
+  working `type` / `files` read filters, so add it too if you rely on those.
+  Otherwise leave it out — `recall` and `learn` cover the same ground.
+
+  `mcp__buildd__check_path_claim` and `mcp__buildd__send_worker_message` are
+  registered only for `worker`- and `admin`-level keys. Listing a tool the server
+  does not register is harmless, so the line above is safe either way.
+</Callout>
 
 ## How It Works
 
@@ -94,7 +111,7 @@ jobs:
             3. Mark the task complete
           claude_args: |
             --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
-            --allowedTools mcp__buildd__buildd,mcp__buildd__buildd_memory,Bash,Read,Write,Edit,Glob,Grep
+            --allowedTools mcp__buildd__buildd,mcp__buildd__recall,mcp__buildd__learn,mcp__buildd__check_path_claim,Bash,Read,Write,Edit,Glob,Grep
 ```
 
 ## Dispatch Triggers
@@ -118,7 +135,7 @@ Add `--max-turns` to `claude_args` to cap how many tool-call rounds the agent ca
 claude_args: |
   --max-turns 20
   --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
-  --allowedTools mcp__buildd__buildd,mcp__buildd__buildd_memory,Bash,Read,Write,Edit,Glob,Grep
+  --allowedTools mcp__buildd__buildd,mcp__buildd__recall,mcp__buildd__learn,mcp__buildd__check_path_claim,Bash,Read,Write,Edit,Glob,Grep
 ```
 
 ### Choosing a model
@@ -127,14 +144,20 @@ Pass `--model` to select a specific Claude model:
 
 ```yaml
 claude_args: |
-  --model claude-opus-4-6
+  --model claude-opus-5
   --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
-  --allowedTools mcp__buildd__buildd,mcp__buildd__buildd_memory,Bash,Read,Write,Edit,Glob,Grep
+  --allowedTools mcp__buildd__buildd,mcp__buildd__recall,mcp__buildd__learn,mcp__buildd__check_path_claim,Bash,Read,Write,Edit,Glob,Grep
 ```
 
-### Workspace memory
+### Team memory
 
-The `buildd_memory` MCP tool gives agents access to persistent workspace context. This is included in the `--allowedTools` list by default and lets agents read and store information that persists across tasks.
+`recall` reads the team knowledge base and `learn` writes to it — lessons persist
+across tasks, machines and sessions. Both are separate MCP tools, so both must
+appear in `--allowedTools`; the workflows above include them.
+
+A good CI prompt tells the agent to call `recall` with the task title *before*
+starting and `learn` on any non-obvious discovery. See
+[Memory](/docs/features/memory) for what is worth saving.
 
 ### Adding CI steps
 
@@ -158,5 +181,5 @@ steps:
         The project dependencies are already installed and linting has passed.
       claude_args: |
         --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
-        --allowedTools mcp__buildd__buildd,mcp__buildd__buildd_memory,Bash,Read,Write,Edit,Glob,Grep
+        --allowedTools mcp__buildd__buildd,mcp__buildd__recall,mcp__buildd__learn,mcp__buildd__check_path_claim,Bash,Read,Write,Edit,Glob,Grep
 ```

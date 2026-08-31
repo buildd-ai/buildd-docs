@@ -27,12 +27,20 @@ Buildd consists of:
 ### 1. Clone and Configure
 
 ```bash
-git clone https://github.com/yourusername/buildd.git
+git clone https://github.com/buildd-ai/buildd.git
 cd buildd
 cp .env.example .env.local
 ```
 
 ### 2. Edit `.env.local`
+
+<Callout type="warn">
+  `.env.example` in the repo is **not** a complete list. Several variables the
+  app reads are absent from it — most importantly `ENCRYPTION_KEY`, which the
+  entire [secrets system](/docs/concepts/secrets) derives its key from. Without
+  it the app boots and looks healthy, and then credential delivery silently
+  no-ops. Set the variables below, not just the ones in the example file.
+</Callout>
 
 ```bash
 # Database
@@ -40,7 +48,17 @@ DATABASE_URL=postgresql://postgres:postgres@db:5432/buildd
 
 # Auth (generate with: openssl rand -base64 32)
 AUTH_SECRET=your-secret-here
-AUTH_URL=https://your-domain.com
+
+# Secret encryption — REQUIRED, min 32 characters, and NOT in .env.example.
+# Generate with: openssl rand -base64 48
+# Store it verbatim. Any transformation (a stray trailing newline, a shell
+# escape) changes the scrypt input and makes every existing secret
+# undecryptable, with no error at startup.
+ENCRYPTION_KEY=your-32-plus-char-key
+
+# Public base URL. Every link the app generates falls back to
+# https://buildd.dev when this is unset.
+NEXT_PUBLIC_APP_URL=https://your-domain.com
 
 # Google OAuth
 GOOGLE_CLIENT_ID=your-client-id
@@ -82,7 +100,8 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/buildd
       - AUTH_SECRET=${AUTH_SECRET}
-      - AUTH_URL=${AUTH_URL}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - CRON_SECRET=${CRON_SECRET}
@@ -151,19 +170,56 @@ Add entry:
 
 ## Environment Variables Reference
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `AUTH_SECRET` | Yes | NextAuth secret (32+ random chars) |
-| `AUTH_URL` | Yes | Your site URL (e.g., https://buildd.example.com) |
-| `GOOGLE_CLIENT_ID` | Yes | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth secret |
-| `CRON_SECRET` | Yes* | Secret for `/api/cron/schedules` endpoint |
-| `PUSHER_APP_ID` | No | Pusher app ID (enables realtime updates) |
-| `PUSHER_KEY` | No | Pusher key |
-| `PUSHER_SECRET` | No | Pusher secret |
+### Required
 
-\* Required only if using task schedules feature
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string. The first DB access throws without it |
+| `AUTH_SECRET` | NextAuth secret (32+ random chars). Read implicitly by NextAuth |
+| `ENCRYPTION_KEY` | Master key for the secrets system — AES-256-GCM via scrypt. **Minimum 32 characters**; `encrypt()`/`decrypt()` throw below that. Not present in `.env.example` |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID (required for Google sign-in) |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth secret |
+
+### Effectively required for a real deployment
+
+| Variable | Description |
+|----------|-------------|
+| `NEXT_PUBLIC_APP_URL` | Public base URL. Nothing throws without it, but every generated link falls back to `VERCEL_URL` and then to `https://buildd.dev` — so share links, callbacks and dashboard URLs point at the wrong host |
+| `CRON_SECRET` | Authenticates `/api/cron/*`. The routes return `500 CRON_SECRET not configured` without it, so all scheduled work stops |
+
+### Optional — each gates one feature
+
+| Variable | Without it |
+|----------|-----------|
+| `AUTH_URL` / `NEXTAUTH_URL` | Nothing breaks. `auth.ts` sets `trustHost: true`, so NextAuth infers the host from the request; every other read is a fallback chain ending in `http://localhost:3000`. `NEXTAUTH_URL` is checked first where both are read |
+| `PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER`, `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER` | Realtime dashboard updates are disabled; the Pusher client is `null` unless the set is complete |
+| `VOYAGE_API_KEY` | Semantic embedding and reranking are unavailable — knowledge retrieval degrades to a lexical-only fallback with no error |
+| `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_PRIVATE_KEY` (or `GITHUB_APP_PRIVATE_KEY_BASE64`) | The whole GitHub integration is off — `isGitHubAppConfigured()` is false, so no PR creation, no merges, no `repository_dispatch` |
+| `GITHUB_APP_CLIENT_SECRET` | GitHub sign-in fails. There is no `AUTH_GITHUB_ID`/`AUTH_GITHUB_SECRET` — the GitHub App's OAuth credentials double as the login provider's |
+| `GITHUB_APP_WEBHOOK_SECRET` | **Fails open.** `verifyWebhookSignature()` logs a warning and returns `true`, so any unauthenticated caller can forge a GitHub webhook. Set it |
+| `GITHUB_APP_SLUG` | The install URL defaults to the `buildd` app slug — wrong for your own app |
+| `SLACK_SIGNING_SECRET` | Fails closed — the Slack integration route rejects every request |
+| `DISCORD_PUBLIC_KEY` | Fails closed — the Discord integration route rejects every request |
+| `ANTHROPIC_API_KEY` | Optional for the web app; workers supply their own credentials. Only the task classifier throws without it |
+| `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_PUBLIC_URL` | File-artifact upload and download are disabled (`isStorageConfigured()` gates them). `STORAGE_REGION` defaults to `auto` |
+| `BUILDD_SIGNING_KEY_TEAM_ID` | JWKS key storage and rotation throw. Only needed if you use signed tokens |
+| `ALLOWED_EMAILS` | Sign-in is open to any email that completes OAuth |
+
+<Callout type="warn">
+  Two footguns in the private-key handling. `GITHUB_APP_PRIVATE_KEY` is read with
+  `.replace(/\\n/g, '\n')`, so it must contain **literal** backslash-`n`
+  sequences, not real newlines — `GITHUB_APP_PRIVATE_KEY_BASE64` avoids the
+  question and is preferred. And `ENCRYPTION_KEY` is only length-checked
+  (`< 32` throws): a same-length corruption passes the check and then decrypts
+  nothing, which surfaces as "no credential stored" rather than an error.
+</Callout>
+
+<Callout type="info">
+  `packages/core/config.ts` defines its `required()` helper as
+  `process.env[key] || ''` so that Vercel builds don't fail. A missing value
+  becomes an empty string, not an error — do not rely on startup to tell you
+  what you forgot.
+</Callout>
 
 ## Troubleshooting
 
@@ -186,7 +242,9 @@ bun run db:migrate
 
 ## Security Checklist
 
-- [ ] Use strong `AUTH_SECRET` and `CRON_SECRET` (32+ chars)
+- [ ] Use strong `AUTH_SECRET`, `ENCRYPTION_KEY` and `CRON_SECRET` (32+ chars)
+- [ ] Set `GITHUB_APP_WEBHOOK_SECRET` — webhook signature verification is skipped without it
+- [ ] Back up `ENCRYPTION_KEY` outside the deployment; losing it means every stored secret is unrecoverable
 - [ ] Enable SSL/TLS with valid certificate
 - [ ] Use firewall to restrict database access
 - [ ] Keep dependencies updated: `bun update`

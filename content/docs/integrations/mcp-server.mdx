@@ -62,61 +62,175 @@ When using `buildd init <workspace-id>`, the workspace is baked into the MCP URL
 
 ## Tools
 
-The server exposes three tools:
+The server exposes **six** tools, but not all of them to every caller:
 
-| Tool | Purpose |
-|------|---------|
-| `buildd` | Task coordination — an `action` parameter selects the operation |
-| `recall` | Read the team knowledge base |
-| `learn` | Write a durable lesson to the team knowledge base |
+| Tool | Purpose | Available to |
+|------|---------|--------------|
+| `buildd` | Task coordination — an `action` parameter selects the operation | all levels |
+| `check_path_claim` | Mid-task path-claim check when you need a file outside your `pathManifest` | `worker`, `admin` |
+| `send_worker_message` | Send a structured message to another active worker in the workspace | `worker`, `admin` |
+| `recall` | Read the team knowledge base | all levels |
+| `learn` | Write a durable lesson to the team knowledge base | all levels |
+| `buildd_memory` | Legacy combined knowledge tool — still callable | all levels |
+
+<Callout type="warn">
+  Two things narrow the list further:
+
+  - A **`trigger`** token sees four tools — `check_path_claim` and
+    `send_worker_message` are not registered for it.
+  - In a workspace whose `dataClass` is `sensitive`, the three knowledge tools
+    (`recall`, `learn`, `buildd_memory`) are not registered at all.
+
+  If you are writing a `--allowedTools` allowlist for CI, list the tools you
+  actually need by name — `mcp__buildd__buildd`, `mcp__buildd__recall`,
+  `mcp__buildd__learn` — because a tool you omit cannot be called.
+</Callout>
 
 <Callout type="info">
-  A single buildd API key covers all three. Memory is built into buildd — there is no separate memory service, no separate signup, and no second key. The retired `memory.buildd.dev` service and its `mem_*` keys are gone; see [Memory](/docs/features/memory).
+  A single buildd API key covers all of them. Memory is built into buildd — there is no separate memory service, no separate signup, and no second key. The retired `memory.buildd.dev` service and its `mem_*` keys are gone; see [Memory](/docs/features/memory).
 </Callout>
 
 ### `buildd` — Task Coordination
 
-Available actions depend on your account level (detected automatically from your API key).
+Available actions depend on your **token level** — `trigger`, `worker`, or
+`admin` — detected automatically from your API key. Out-of-level actions are
+omitted from the advertised `action` enum *and* rejected by the handler, so
+there is no way to reach them with the wrong token.
 
-#### Worker Actions (all accounts)
+#### Trigger-level actions
+
+A `trigger` token can file work and read status, but cannot claim or execute.
+These are also available at `worker` and `admin`.
 
 | Action | Key Params | Description |
 |--------|-----------|-------------|
 | `list_tasks` | `offset?` | List pending tasks sorted by priority |
-| `claim_task` | `maxTasks?, workspaceId?` | Auto-claim highest-priority pending task |
-| `update_progress` | `workerId, progress, message?` | Report progress (0-100%) |
-| `complete_task` | `workerId, summary?, error?` | Mark task done or failed |
-| `create_pr` | `workerId, title, head` | Create a GitHub PR tracked on the worker |
-| `update_task` | `taskId, title?, description?, priority?` | Update task fields or dependencies |
-| `create_task` | `title, description, workspaceId?, objectiveId?, skillSlugs?, model?, effort?` | Create a new task |
-| `create_artifact` | `workerId, type, title, content?` | Create a shareable artifact |
-| `list_artifacts` | `workspaceId?, key?, type?` | List workspace artifacts |
-| `update_artifact` | `artifactId, title?, content?` | Update an existing artifact |
-| `review_workspace` | `hoursBack?, workspaceId?` | Review recent task quality |
-| `emit_event` | `workerId, type, label, metadata?` | Record a custom milestone event |
-| `query_events` | `workerId, type?` | Read events from worker timeline |
-| `list_artifact_templates` | — | List available artifact templates with JSON schemas |
+| `get_task` | `taskId`, `include?` | Read-only status check; returns task fields, loop state, latest workers, artifacts |
+| `get_task_messages` | `taskId` | Instruction history for the task's active or most recent worker |
+| `create_task` | `title`, `description`, `workspaceId?`, … | Create a new task. **Rejects unknown parameters** |
+| `create_artifact` | `type`, `title`, `content?`, `workerId?`/`missionId?`/`initiativeId?` | Create an artifact — see [Artifacts](/docs/features/artifacts) for the type caveats |
+| `list_artifacts` | `workspaceId?`, `missionId?`, `key?`, `type?`, `limit?` | List artifacts |
+| `get_artifact` | `artifactId` | Fetch full artifact content by ID |
+| `list_artifact_templates` | — | List artifact templates with JSON schemas |
+| `emit_event` | `type`, `label`, `metadata?`, `workerId?` | Record a custom milestone event |
+| `list_schedules` | `workspaceId?`, `minutesAgo?`, `nameContains?` | Read-only schedule listing |
+| `trace_schedule` | `taskId?` / `minutesAgo?` / `taskTitleContains?` | Reverse-lookup: which schedule spawned this task |
 
-#### Admin Actions (admin-level API key only)
+<Callout type="info">
+  `list_schedules` is available at **every** token level, and it is the
+  recommended probe for telling a privilege failure from an expired key: if
+  `list_schedules` works but an admin action returns `forbidden`, your token is
+  authentic and simply lacks admin level.
+</Callout>
+
+#### Worker-level actions
+
+A `worker` token gets everything above, plus:
 
 | Action | Key Params | Description |
 |--------|-----------|-------------|
-| `register_skill` | `name, content, slug?, isRole?, model?, mcpServers?, allowedTools?, canDelegateTo?, requiredEnvVars?` | Create/upsert a skill or role |
-| `list_skills` | `workspaceId?, enabled?, isRole?` | List skills/roles with filtering |
-| `update_skill` | `slug, workspaceId?, name?, content?, mcpServers?, allowedTools?, canDelegateTo?, enabled?` | Update a skill/role by slug |
-| `delete_skill` | `slug, workspaceId?` | Delete a skill/role by slug |
-| `manage_secrets` | `action (list/set/delete), label?, value?, secretId?` | Manage encrypted MCP credentials |
-| `create_schedule` | `name, cronExpression, title` | Create a recurring schedule |
-| `update_schedule` | `scheduleId, cronExpression?` | Update a schedule |
-| `list_schedules` | `workspaceId?` | List all schedules |
+| `claim_task` | `maxTasks?`, `workspaceId?` | Return the current assignment, or auto-claim the highest-priority pending task |
+| `update_progress` | `progress`, `message?`, `plan?`, `workerId?` | Report progress (0-100%). `plan` only appends a timeline entry — see the plan note below |
+| `complete_task` | `summary?`, `error?`, `structuredOutput?`, `workerId?` | Mark task done or failed. `structuredOutput` is how a planning task returns its plan |
+| `create_pr` | `title`, `head`, `body?`, `base?`, `draft?`, `prUrl?` | Create (or register) a GitHub PR on the worker |
+| `get_pr` | `prNumber?`, `workspaceId?` | Mergeable state, CI checks, reviews, diff stats, PR body |
+| `merge_pr` | `prNumber`, `mergeMethod?` | Merge via the workspace's GitHub App token |
+| `close_pr` | `prNumber` | Close a PR via the workspace's GitHub App token |
+| `update_task` | `taskId`, `title?`, `description?`, `priority?`, `project?`, `status?`, `backend?`, `maxLoops?` | Update task fields. **Only those fields** — see the warning below |
+| `upload_artifact` | `filename`, `mimeType`, `sizeBytes`, `title?`, `type?` | Get a signed upload URL for a file artifact |
+| `update_artifact` | `artifactId`, `title?`, `content?`, `metadata?` | Update an existing artifact |
+| `query_events` | `type?`, `workerId?` | Read events from the worker timeline |
+| `get_error_traces` | `taskId?`, `since?`, `limit?` | Pattern-matched errors caught from agent tool output |
+| `get_failure_analytics` | `window?`, `error?`, `limit?` | Team-scoped worker-failure aggregation |
+| `get_budget_forecast` | `workspaceId?` | Session pressure and monthly dollar budget for the team |
+| `get_usage_stats` | `window?`, `groupBy?` | Tokens / cost / turns per task |
+| `spec_compare` | `feature`, `topK?` | Spec-drift check: code evidence vs spec evidence |
+| `post_note` | `type`, `title`, `body?` | Post a note to the current task or mission |
+| `suggest_schedule_update` | `reason`, `scheduleId?`, `cronExpression?`, `enabled?` | Propose a schedule change for human approval |
+| `list_connectors` | `workspaceId?` | Connectors mounted for this workspace, with health |
+| `list_releases` | `workspaceId?`, `missionId?`, `state?`, `limit?` | List releases |
+| `get_release` | `releaseId` | A single release with attributed task edges |
+
+<Callout type="warn">
+  `update_task` forwards only `title`, `description`, `priority`, `project`,
+  `status`, `backend` and `maxLoops`. Unlike `create_task`, it does **not** reject
+  unknown parameters — anything else you pass is discarded silently and the call
+  still reports success. In particular `dependsOn` and `requiresReview` do
+  nothing here; see [Task Dependencies](/docs/features/dependencies#mcp) and
+  [Autonomous Workflow](/docs/features/autonomous#requiresreview-opt-in).
+</Callout>
+
+<Callout type="warn">
+  **`update_progress` with `plan` does not submit a plan for review.** It appends
+  a `type: "plan"` entry to the worker's milestone timeline and nothing else — no
+  gate, no approval state, no child tasks. It is a progress annotation.
+
+  A reviewable plan is returned as **validated structured output at
+  `complete_task`**. When a task's `mode` is `planning`, the runner asks the model
+  for output constrained to the planning schema — `plan` (an array of steps with
+  `ref`, `title`, `description`, and optional `dependsOn`), `summary`, and
+  `missionComplete` — and reports it as `structuredOutput`.
+  `buildd action=approve_plan` then reads `task.result.structuredOutput.plan` and
+  materialises the child tasks. If the plan came back as prose instead,
+  `approve_plan` fails with `No plan found in task result`.
+
+  ```
+  buildd action=complete_task params={
+    workerId: "...",
+    summary: "Decomposed into 3 steps",
+    structuredOutput: {
+      plan: [
+        { ref: "s1", title: "Add middleware", description: "..." },
+        { ref: "s2", title: "Update routes", description: "...", dependsOn: ["s1"] }
+      ],
+      summary: "Auth refactor in two steps",
+      missionComplete: false
+    }
+  }
+  ```
+</Callout>
+
+#### Admin-level actions
+
+An `admin` token gets everything above, plus:
+
+| Action | Key Params | Description |
+|--------|-----------|-------------|
+| `register_skill` | `name`, `content`, `slug?`, `isRole?`, `model?`, `allowedTools?`, `canDelegateTo?`, `connectorRefs?`, … | Create/upsert a skill or role |
+| `list_skills` | `workspaceId?`, `enabled?`, `isRole?` | List skills/roles |
+| `get_skill` | `slug`, `workspaceId?` | Fetch the full skill body and config |
+| `update_skill` | `slug`, `name?`, `content?`, `enabled?`, … | Update a skill/role by slug |
+| `delete_skill` | `slug`, `workspaceId?` | Delete a skill/role by slug |
+| `manage_secrets` | `action` (list/set/delete), `label?`, `value?`, `purpose?`, `secretId?` | Manage encrypted credentials |
+| `create_schedule` | `name`, `cronExpression`, `title`, … | Create a recurring schedule |
+| `update_schedule` | `scheduleId`, `cronExpression?`, `enabled?`, … | Update a schedule |
+| `delete_schedule` | `scheduleId` | Remove a schedule permanently |
+| `pause_schedules` | `scheduleIds?`, `namePattern?`, `enabled?` | Bulk-flip the enabled flag |
 | `approve_plan` | `taskId` | Approve a planning task and create child execution tasks |
-| `reject_plan` | `taskId, feedback` | Reject a plan with feedback, create revised planning task |
-| `manage_missions` | `action, missionId?, title?, status?, skillSlugs?, recipeId?, model?` | Manage team missions (list/create/get/update/delete/link_task/unlink_task) |
-| `list_recipes` | `workspaceId?` | List reusable workflow recipes |
-| `create_recipe` | `name, steps, description?, category?` | Create a workflow recipe |
-| `run_recipe` | `recipeId, variables?, parentTaskId?` | Instantiate a recipe into tasks |
-| `consolidate_knowledge` | `op (find_duplicates/find_decayed/archive), corpora?, threshold?` | Review near-duplicate or decayed knowledge entries, or archive a batch |
-| `memory_delete` | `id` | Permanently remove a memory. Prefer `learn` with `supersedes` for soft-deletion |
+| `reject_plan` | `taskId`, `feedback` | Reject a plan, create a revised planning task |
+| `manage_missions` | `action` (list/create/get/update/arm/delete/link_task/unlink_task/evaluate/get_criteria_state), … | Manage team missions |
+| `manage_initiatives` | `action` (list/create/get/update/delete/link_mission/unlink_mission/evaluate/get_kpi_state), … | Manage initiatives |
+| `manage_workspaces` | `action` (list/get/create/update/create_repo/init), … | Manage workspaces |
+| `manage_watched_projects` | `action` (list/create/update/delete/run), … | Manage watched projects |
+| `manage_model_tiers` | `action` (list/set/delete), `tier?`, `workspaceId?` | Manage model tier mappings |
+| `link_tracker` | `entityType`, `entityId`, `url` | Link a mission to an external tracker |
+| `trigger_release` | `workspaceId?` / `repo?`, `ref?`, `inputs?` | Trigger a release |
+| `release_status` | `workspaceId?` / `repo?`, `ref?`, `prodBranch?` | Read-only release preflight |
+| `send_agent_message` | `taskId`, `message`, `priority?` | Deliver a mid-flight steering message to a running agent |
+| `consolidate_knowledge` | `op` (find_duplicates/find_decayed/archive), `corpora?`, `threshold?` | Review near-duplicate or decayed knowledge entries, or archive a batch |
+| `memory_delete` | `id` | Permanently remove a memory. Prefer `learn` with `supersedes` |
+
+<Callout type="warn">
+  `register_skill` and `update_skill` still accept `mcpServers` and
+  `requiredEnvVars`, and still store them — but they are **no longer used to
+  build a role's MCP configuration**. MCP servers are injected at claim time from
+  **connectors**; use `connectorRefs` to opt a role into them. The role bundle
+  written to storage carries `mcpConfig: {}` and `envMapping: {}` by design.
+
+  They are not entirely inert: the claim path still reads
+  `mcpServers['codebase-memory'] === false` as an opt-out flag for that one
+  server. Anything else you put there is stored and ignored.
+</Callout>
 
 #### Examples
 
@@ -130,9 +244,6 @@ buildd action=update_progress params={ workerId: "...", progress: 50, message: "
 # Create a PR and complete
 buildd action=create_pr params={ workerId: "...", title: "feat: add auth", head: "feat/auth" }
 buildd action=complete_task params={ workerId: "...", summary: "Added JWT auth middleware" }
-
-# Submit a plan for review
-buildd action=update_progress params={ workerId: "...", plan: "1. Add middleware\n2. Update routes\n3. Add tests" }
 
 # Record a custom event
 buildd action=emit_event params={ workerId: "...", type: "deploy", label: "Deployed to staging" }
@@ -148,16 +259,23 @@ Memories are stored in buildd's own database, isolated per team and optionally s
 |-------|-------------|
 | `query` | Natural language query: task title, error text, or concept. Required unless `id` is given |
 | `id` | Direct fetch by memory ID — bypasses ranking; all other params ignored |
-| `type` | `gotcha`, `pattern`, `decision`, `discovery`, `architecture`, or the legacy read-only `summary` |
-| `files` | Narrow to entries touching these paths |
-| `limit` | Max results (default 10) |
-| `scope` | Corpus to search: `memory` (default), `task`, `pr`, `plan`, `artifact`, `code`, `docs`, `spec` |
+| `limit` | Max results (default 10, capped at 50) |
+| `scope` | Corpus to search — a string or an array for fused multi-corpus results: `memory` (default), `task`, `pr`, `plan`, `artifact`, `code`, `docs`, `spec` |
+
+<Callout type="warn">
+  `recall`'s input schema also advertises `type` and `files`, but **the handler
+  reads neither**. Passing them changes nothing and raises no error — you get
+  unfiltered results that look filtered. Narrow with `query` and `scope` instead.
+
+  The legacy `buildd_memory action=search` *does* honour `type` and `files`, so
+  it remains the only way to get a real type or file filter over memory.
+</Callout>
 
 #### `learn` — write
 
 | Param | Required | Description |
 |-------|----------|-------------|
-| `type` | Yes | `gotcha`, `pattern`, `decision`, `discovery`, or `architecture`. `summary` is rejected on write |
+| `type` | Yes | `gotcha`, `pattern`, `decision`, `discovery`, or `architecture` — enforced by both the schema enum and the handler |
 | `title` | Yes | Short title |
 | `content` | Yes | The lesson — what the next agent should know |
 | `files` | No | Related file paths |
@@ -165,16 +283,19 @@ Memories are stored in buildd's own database, isolated per team and optionally s
 | `scope` | No | Project / monorepo scope for this memory |
 | `supersedes` | No | Memory IDs this entry replaces; they drop out of default retrieval |
 
-Near-duplicates are merged automatically.
+Near-duplicates are merged automatically. In a `sensitive` workspace `learn` is not registered at all.
 
 #### Examples
 
 ```
 # Recall before starting work — pass the task title or the error text
-recall query="drizzle migrations" type="gotcha"
+recall query="drizzle migrations"
 
 # Also check recent task outcomes, not just lessons
 recall query="drizzle migrations" scope="task"
+
+# Or both corpora in one call
+recall query="drizzle migrations" scope=["memory","task"]
 
 # Record a lesson
 learn type="gotcha" title="neon-http no transactions" content="..." files=["packages/core/db/schema.ts"]
@@ -184,15 +305,20 @@ learn type="gotcha" title="neon-http supports transactions from v0.10" content="
 ```
 
 <Callout type="warn">
-  Two asymmetries to watch:
-
-  - `scope` is not the same field on both tools. On `recall` it picks the corpus to search; on `learn` it is the project/monorepo name.
-  - The readable and writable type sets differ. `learn` accepts five types; `recall` also accepts the legacy `summary`, which holds most of the existing corpus and can no longer be written. Filtering reads to the five writable types silently hides the majority of memories — see [Memory](/docs/features/memory#summary--legacy-read-only).
+  `scope` is not the same field on both tools. On `recall` it picks the corpus to
+  search; on `learn` it is the project/monorepo name. Don't copy one into the
+  other.
 </Callout>
 
 #### `buildd_memory` (legacy)
 
-The older combined `buildd_memory` tool remains callable for compatibility, with actions `context`, `search`, `save`, `get`, `update`, and `query_knowledge`. Use `recall` and `learn` in new sessions. Deletion is no longer one of its actions — see `memory_delete` under admin actions.
+The older combined `buildd_memory` tool remains callable for compatibility, with actions `context`, `search`, `save`, `get`, `update`, and `query_knowledge`. Prefer `recall` and `learn` in new sessions — with the one exception noted above, that `search` still supports `type` and `files` filters which `recall` does not. Deletion is no longer one of its actions — see `memory_delete` under admin actions.
+
+<Callout type="warn">
+  `buildd_memory action=update` writes `type` **without validating it**, unlike
+  `save` and `learn`, which both enforce the five allowed types. A typo'd type is
+  stored verbatim and the memory then disappears from every type-filtered query.
+</Callout>
 
 ## MCP Resources
 
@@ -222,7 +348,7 @@ The typical MCP workflow:
 3. **`git checkout <branch>`** — switch to the worker branch
 4. **`recall`** — query for context on unfamiliar files or a failing error
 5. Do the work, recording lessons with **`learn`** as you go
-6. **`buildd` action=update_progress** — report at milestones (check for admin instructions in response)
+6. **`buildd` action=update_progress** — report at milestones (check for admin instructions in the response)
 7. **`git push`** — push your commits
 8. **`buildd` action=create_pr** — create a pull request (use this instead of `gh pr create`)
 9. **`buildd` action=complete_task** — mark the task as done

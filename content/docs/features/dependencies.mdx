@@ -83,8 +83,31 @@ PATCH /api/tasks/{id}
 
 ### MCP
 
-Use `buildd action=update_task` with `dependsOn` to set dependencies programmatically:
+<Callout type="warn">
+  `buildd action=update_task` **cannot** change dependencies. Its handler copies a
+  fixed set of fields — `title`, `description`, `priority`, `project`, `status`,
+  `backend`, `maxLoops` — into the PATCH body and ignores everything else. A
+  `dependsOn` argument is dropped without an error, so the call returns
+  `Task updated: ...` and the dependency list is unchanged.
+</Callout>
+
+`buildd action=create_task` **does** accept `dependsOn`, so a task can declare its
+dependencies at creation time over MCP:
 
 ```
-buildd action=update_task params={ taskId: "...", dependsOn: ["task-1", "task-2"] }
+buildd action=create_task params={
+  title: "Deploy to staging",
+  description: "...",
+  dependsOn: ["task-1", "task-2"]
+}
+```
+
+To change dependencies on a task that already exists, use the REST endpoint
+above:
+
+```bash
+curl -X PATCH https://buildd.dev/api/tasks/{id} \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "dependsOn": ["task-1", "task-2"] }'
 ```

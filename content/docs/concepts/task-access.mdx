@@ -25,12 +25,34 @@ Buildd separates **Dashboard Users** (task creators/managers) from **Workers** (
 - Report progress and submit results
 - Scoped to a team via the account's `teamId`
 
-Workers can have one of two account levels:
+Machine accounts have one of **three** levels — `trigger`, `worker`, or `admin`.
+Each is a superset of the one before it:
 
 | Level | Capabilities |
 |-------|-------------|
-| `worker` | List, claim, execute, and complete tasks. Search and save memory. |
-| `admin` | All worker capabilities + create tasks, reassign, send instructions, manage schedules and skills. |
+| `trigger` | File and read only: list/read tasks, create tasks and artifacts, emit events, read schedules. **Cannot claim or execute.** |
+| `worker` | All of `trigger` + claim, execute and complete tasks, open/merge/close PRs, update tasks and artifacts, read failure and usage analytics. |
+| `admin` | All of `worker` + create tasks by schedule, send agent instructions, manage schedules, skills, missions, initiatives, workspaces, secrets and releases. |
+
+The level is enforced twice on the MCP surface: out-of-level actions are omitted
+from the advertised `action` enum, and the handler rejects them again with
+`{"error":"forbidden", …}`. See [MCP Server](/docs/integrations/mcp-server#buildd--task-coordination)
+for the per-level action lists.
+
+<Callout type="warn">
+  The default level depends on **which route mints the key**, and they disagree:
+
+  | Path | Level when `level` is omitted |
+  |------|-------------------------------|
+  | `POST /api/accounts` | `worker` |
+  | Direct DB insert (column default) | `worker` |
+  | `POST /api/auth/device/code` | **`admin`** |
+  | `GET /api/auth/cli` | `worker` for the `runner` client; **`admin`** for `cli`, `mcp` and `agent` |
+  | OAuth-authenticated request | forced to `admin` |
+
+  So a key created through the device-auth or CLI flow without an explicit
+  `level` is an admin key. See [Device Authentication](/docs/features/device-auth#account-level).
+</Callout>
 
 ## Data Model
 
@@ -49,7 +71,8 @@ users
 
 -- Worker accounts (API tokens)
 accounts
-  id, name, type, level (worker|admin),
+  id, name, type (user|service|action),
+  level (trigger|worker|admin) DEFAULT 'worker',
   apiKey, teamId, authType (api|oauth)
 
 -- Workspace access control
@@ -64,7 +87,7 @@ account_workspaces
 ```
 workspaces.accessMode: 'open' | 'restricted'
 
-open:       Any token in the team can claim tasks
+open:       Any worker- or admin-level token in the team can claim tasks
 restricted: Only accounts in accountWorkspaces with canClaim=true
 ```
 
