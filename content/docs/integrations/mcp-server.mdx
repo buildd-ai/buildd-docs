@@ -5,7 +5,7 @@ description: Claude Code integration via Model Context Protocol
 
 # MCP Server
 
-The Buildd MCP server integrates with Claude Code, providing task coordination and workspace memory directly in your coding workflow.
+The Buildd MCP server integrates with Claude Code, providing task coordination and team knowledge directly in your coding workflow.
 
 ## Setup
 
@@ -62,7 +62,17 @@ When using `buildd init <workspace-id>`, the workspace is baked into the MCP URL
 
 ## Tools
 
-The server exposes two tools: `buildd` for task coordination and `buildd_memory` for workspace knowledge. Both use an `action` parameter to select the operation.
+The server exposes three tools:
+
+| Tool | Purpose |
+|------|---------|
+| `buildd` | Task coordination — an `action` parameter selects the operation |
+| `recall` | Read the team knowledge base |
+| `learn` | Write a durable lesson to the team knowledge base |
+
+<Callout type="info">
+  A single buildd API key covers all three. Memory is built into buildd — there is no separate memory service, no separate signup, and no second key. The retired `memory.buildd.dev` service and its `mem_*` keys are gone; see [Memory](/docs/features/memory).
+</Callout>
 
 ### `buildd` — Task Coordination
 
@@ -105,6 +115,8 @@ Available actions depend on your account level (detected automatically from your
 | `list_recipes` | `workspaceId?` | List reusable workflow recipes |
 | `create_recipe` | `name, steps, description?, category?` | Create a workflow recipe |
 | `run_recipe` | `recipeId, variables?, parentTaskId?` | Instantiate a recipe into tasks |
+| `consolidate_knowledge` | `op (find_duplicates/find_decayed/archive), corpora?, threshold?` | Review near-duplicate or decayed knowledge entries, or archive a batch |
+| `memory_delete` | `id` | Permanently remove a memory. Prefer `learn` with `supersedes` for soft-deletion |
 
 #### Examples
 
@@ -126,37 +138,58 @@ buildd action=update_progress params={ workerId: "...", plan: "1. Add middleware
 buildd action=emit_event params={ workerId: "...", type: "deploy", label: "Deployed to staging" }
 ```
 
-### `buildd_memory` — Workspace Knowledge
+### `recall` and `learn` — Team Knowledge
 
-Backed by the [Buildd Memory service](https://buildd.dev/memory). Memories are isolated per team and scoped by project within each team.
+Memories are stored in buildd's own database, isolated per team and optionally scoped by project. Full detail on types, scoping, and maintenance lives on the [Memory](/docs/features/memory) page.
 
-| Action | Key Params | Description |
-|--------|-----------|-------------|
-| `context` | — | Load relevant memories for current project |
-| `search` | `query?, type?, files?, tags?, limit?` | Search memories |
-| `save` | `type, title, content, files?, tags?` | Save a new memory |
-| `get` | `id` | Retrieve a specific memory |
-| `update` | `id, title?, content?, type?, files?, tags?` | Update an existing memory |
-| `delete` | `id` | Delete a memory |
+#### `recall` — read
+
+| Param | Description |
+|-------|-------------|
+| `query` | Natural language query: task title, error text, or concept. Required unless `id` is given |
+| `id` | Direct fetch by memory ID — bypasses ranking; all other params ignored |
+| `type` | `gotcha`, `pattern`, `decision`, `discovery`, or `architecture` |
+| `files` | Narrow to entries touching these paths |
+| `limit` | Max results (default 10) |
+| `scope` | Corpus to search: `memory` (default), `task`, `pr`, `plan`, `artifact`, `code`, `docs`, `spec` |
+
+#### `learn` — write
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `type` | Yes | `gotcha`, `pattern`, `decision`, `discovery`, or `architecture` |
+| `title` | Yes | Short title |
+| `content` | Yes | The lesson — what the next agent should know |
+| `files` | No | Related file paths |
+| `tags` | No | Tags for categorisation |
+| `scope` | No | Project / monorepo scope for this memory |
+| `supersedes` | No | Memory IDs this entry replaces; they drop out of default retrieval |
+
+Near-duplicates are merged automatically.
 
 #### Examples
 
 ```
-# Load project context
-buildd_memory action=context
+# Recall before starting work — pass the task title or the error text
+recall query="drizzle migrations" type="gotcha"
 
-# Search for relevant context
-buildd_memory action=search params={ query: "drizzle migrations", type: "gotcha" }
+# Also check recent task outcomes, not just lessons
+recall query="drizzle migrations" scope="task"
 
-# Save a memory
-buildd_memory action=save params={ type: "gotcha", title: "neon-http no transactions", content: "..." }
+# Record a lesson
+learn type="gotcha" title="neon-http no transactions" content="..." files=["packages/core/db/schema.ts"]
 
-# Update a stale memory
-buildd_memory action=update params={ id: "mem_xxx", content: "Updated guidance..." }
-
-# Remove outdated memory
-buildd_memory action=delete params={ id: "mem_xxx" }
+# Replace a lesson that has gone stale
+learn type="gotcha" title="neon-http supports transactions from v0.10" content="..." supersedes=["<old-memory-id>"]
 ```
+
+<Callout type="warn">
+  `scope` is not the same field on both tools. On `recall` it picks the corpus to search; on `learn` it is the project/monorepo name.
+</Callout>
+
+#### `buildd_memory` (legacy)
+
+The older combined `buildd_memory` tool remains callable for compatibility, with actions `context`, `search`, `save`, `get`, `update`, and `query_knowledge`. Use `recall` and `learn` in new sessions. Deletion is no longer one of its actions — see `memory_delete` under admin actions.
 
 ## MCP Resources
 
@@ -165,7 +198,7 @@ The server exposes read-only resources that MCP clients can read directly:
 | URI | Description |
 |-----|-------------|
 | `buildd://tasks/pending` | Pending tasks sorted by priority |
-| `buildd://workspace/memory` | Recent workspace memories |
+| `buildd://workspace/memory` | Recent team memories for this workspace |
 | `buildd://workspace/skills` | Available skills |
 
 ## Observability Events
@@ -184,8 +217,8 @@ The typical MCP workflow:
 1. **`buildd` action=list_tasks** — see what's available
 2. **`buildd` action=claim_task** — claim a task, read the included memory
 3. **`git checkout <branch>`** — switch to the worker branch
-4. **`buildd_memory` action=search** — search for context on unfamiliar files
-5. Do the work, saving memories with **`buildd_memory` action=save** as you go
+4. **`recall`** — query for context on unfamiliar files or a failing error
+5. Do the work, recording lessons with **`learn`** as you go
 6. **`buildd` action=update_progress** — report at milestones (check for admin instructions in response)
 7. **`git push`** — push your commits
 8. **`buildd` action=create_pr** — create a pull request (use this instead of `gh pr create`)

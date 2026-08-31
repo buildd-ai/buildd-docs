@@ -1,120 +1,156 @@
 ---
-title: Workspace Memory
-description: Persistent knowledge base that helps agents learn from past work
+title: Memory
+description: Built-in team knowledge base that helps agents learn from past work
 ---
 
-# Workspace Memory
+# Memory
 
-A persistent knowledge base scoped to each workspace. Workers save memories as they encounter gotchas, make decisions, or discover patterns. Future workers search this memory before starting work, avoiding repeated mistakes and building on prior knowledge.
+Memory is buildd's built-in team knowledge base. Agents record durable lessons — gotchas, patterns, decisions, discoveries, and architecture facts — and later agents retrieve them before starting work, so the team stops paying twice for the same mistake.
 
-Memory is backed by the [Buildd Memory service](https://buildd.dev/memory). Each team gets an isolated memory store — memories are further scoped by project (workspace repo name) within the team. Memory keys are auto-provisioned on first use.
+Memory is part of buildd itself. Memories live in buildd's own `memories` table and are reached through the same buildd API key and the same [MCP server](/docs/integrations/mcp-server) you already use for tasks. There is nothing extra to install, sign up for, or configure.
 
-## Setup
+<Callout type="warn">
+  Memory used to be a separate hosted service at `memory.buildd.dev`, with its own signup, its own `mem_*` API keys, and its own MCP server package. **That service has been retired** and folded into buildd. If you still have a `mem_*` key, a `MEMORY_API_URL` / `MEMORY_API_KEY` pair, or a standalone memory MCP entry in your `.mcp.json`, delete them — they are dead. If you can call the `buildd` tool, you already have memory.
+</Callout>
 
-Memory works out of the box — no configuration needed. When a team first uses memory (via MCP or API), Buildd automatically provisions an isolated memory API key for the team and stores it. All subsequent memory operations use this team-scoped key.
+## Scoping
 
-**For self-hosted runners**: Memory is accessed through the Buildd API (`/api/workspaces/:id/memory`). As long as the Buildd server has `MEMORY_API_URL` and `MEMORY_ROOT_KEY` configured, memory auto-provisions for each team.
+- **Team-scoped** — every memory belongs to a team. All of that team's agents read and write the same corpus, across sessions, machines, and workspaces. Agent A saves a gotcha; Agent B, on a different machine tomorrow, recalls it.
+- **Project-scoped within a team** — the optional `scope` field narrows a memory to one project or monorepo package, so a large monorepo doesn't drown one app's agents in unrelated lessons.
+- **File-associated** — `files` links a memory to the paths it concerns, so an agent about to touch those paths can find it.
+
+Teams are the isolation boundary: one team never sees another team's memories.
 
 ## Memory Types
 
-Each memory has a type that describes what kind of knowledge it captures:
+Every memory has a type describing the kind of knowledge it captures. Picking the right one helps agents rank and filter what they retrieve.
 
 | Type | Purpose | Example |
 |------|---------|---------|
 | `gotcha` | Non-obvious bugs or traps | "neon-http driver doesn't support interactive transactions" |
-| `pattern` | Recurring code conventions | "All API routes use Bearer token auth via Authorization header" |
+| `pattern` | Recurring code conventions | "All API routes use Bearer token auth via the Authorization header" |
 | `decision` | Architectural choices with rationale | "Chose Pusher over SSE for realtime because of Vercel cold starts" |
-| `discovery` | Learned behaviors or undocumented APIs | "SDK v2 session API ignores settingSources option" |
-| `architecture` | System structure and data flow | "Workers run externally, API is coordination-only" |
-| `summary` | High-level summaries of completed work | "Refactored auth to support both API key and OAuth" |
+| `discovery` | Learned behaviours or undocumented APIs | "SDK v2 session API ignores the settingSources option" |
+| `architecture` | System structure and data flow | "Workers run externally; the API is coordination-only" |
 
-## How Workers Use Memory
+Choosing between them:
 
-### Automatic Memory on Claim
+| Situation | Type |
+|-----------|------|
+| "This doesn't work the way you'd expect" | `gotcha` |
+| "This is how we do X in this codebase" | `pattern` |
+| "We chose X because Y" | `decision` |
+| "I just found out that..." | `discovery` |
+| "Here's how the system is put together" | `architecture` |
 
-When a worker claims a task via `buildd` action=claim_task, the server automatically searches memory using the task title and includes relevant memories in the response. Workers should read these before starting.
+## How Agents Use Memory
 
-### Loading Context
+### Automatic recall on claim
 
-Workers should load project context at the start of a session:
+When a worker claims a task via `buildd` action=claim_task, the server searches memory using the task title and includes relevant memories in the response. Workers should read those before starting — that is the cheapest recall there is.
 
-```
-buildd_memory action=context
-```
+### Recall before work
 
-This returns a markdown digest of recent memories for the current project.
-
-### Searching Before Work
-
-Workers should search manually before touching unfamiliar files:
-
-```
-buildd_memory action=search params={ query: "drizzle schema migrations" }
-buildd_memory action=search params={ type: "gotcha", files: ["packages/core/db/schema.ts"] }
-```
-
-Search supports:
-- **Text query** — full-text search across titles and content
-- **Type filter** — narrow to a specific memory type
-- **File filter** — find memories referencing specific file paths
-- **Tag filter** — search by tagged concepts
-- **Limit** — control result count (default: 10, max: 50)
-
-Search returns full memory content inline — no separate fetch step needed.
-
-### Saving Memories
-
-Save memories immediately when you encounter something noteworthy — don't wait until the end of a task:
+Agents query memory with the `recall` tool, passing the task title, an error message, or a concept:
 
 ```
-buildd_memory action=save params={
-  type: "gotcha",
-  title: "db.transaction() fails with neon-http driver",
-  content: "Interactive transactions are not supported by the neon-http driver. Use atomic UPDATE...WHERE with .returning() for optimistic locking instead.",
-  files: ["packages/core/db/schema.ts"],
-  tags: ["drizzle", "neon", "transactions"]
-}
+recall query="drizzle schema migrations"
+recall query="db.transaction fails" type="gotcha"
+recall query="auth middleware" files=["packages/core/db/schema.ts"]
 ```
 
-Fields:
-- **type** (required) — one of the six memory types
-- **title** (required) — short, descriptive title
-- **content** (required) — full details with context
-- **files** (optional) — related file paths for searchability
-- **tags** (optional) — tags for categorization
+`recall` returns full content inline — there is no separate fetch step. Parameters:
 
-### Updating Memories
+| Param | Description |
+|-------|-------------|
+| `query` | Natural language query: task title, error text, or concept. Required unless `id` is given |
+| `id` | Direct fetch by memory ID — bypasses ranking; all other params are ignored |
+| `type` | Filter to `gotcha`, `pattern`, `decision`, `discovery`, or `architecture` |
+| `files` | Narrow to entries touching these paths |
+| `limit` | Max results (default 10) |
+| `scope` | Corpus to search (default `memory`) — see below |
 
-Correct stale or inaccurate memories:
+`recall` can search corpora other than memory. Set `scope` to `task`, `pr`, `plan`, `artifact`, `code`, `docs`, or `spec` to search completed task outcomes, pull requests, approved plans, artifacts, or ingested source. Before starting non-trivial work, it's worth querying both `memory` (prior lessons) and `task` (recent outcomes) — memory alone misses what shipped last week.
 
-```
-buildd_memory action=update params={
-  id: "mem_xxx",
-  content: "Updated: neon-http now supports transactions in v0.10+, but only with pool mode disabled."
-}
-```
+<Callout type="warn">
+  `scope` means two different things depending on the tool. On `recall` it selects **which corpus to search**. On `learn` it is the **project/monorepo name** the memory belongs to. Don't copy one into the other.
+</Callout>
 
-Any field can be updated: `title`, `content`, `type`, `files`, `tags`.
+### Learn as you go
 
-### Deleting Memories
-
-Remove outdated memories that are no longer relevant:
+Agents record lessons with the `learn` tool, immediately on discovery rather than at the end of a task:
 
 ```
-buildd_memory action=delete params={ id: "mem_xxx" }
+learn type="gotcha" \
+  title="db.transaction() fails with neon-http driver" \
+  content="Interactive transactions aren't supported by the neon-http driver. Use an atomic UPDATE...WHERE with .returning() for optimistic locking instead." \
+  files=["packages/core/db/schema.ts"] \
+  tags=["drizzle", "neon", "transactions"]
 ```
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `type` | Yes | `gotcha`, `pattern`, `decision`, `discovery`, or `architecture` |
+| `title` | Yes | Short title |
+| `content` | Yes | The lesson — what the next agent would have wanted to know |
+| `files` | No | Related file paths, for searchability |
+| `tags` | No | Tags for categorisation |
+| `scope` | No | Project / monorepo scope for this memory |
+| `supersedes` | No | Memory IDs this entry replaces |
+
+Near-duplicates are merged automatically, so re-learning something the team already knows is cheap rather than noisy.
+
+### Correcting stale memory
+
+Memory is only useful while it's true. When a lesson goes stale, write the corrected version and list the old IDs in `supersedes`:
+
+```
+learn type="gotcha" \
+  title="neon-http supports transactions from v0.10" \
+  content="Fixed in v0.10+, but only with pool mode disabled." \
+  supersedes=["<old-memory-id>"]
+```
+
+Superseded entries drop out of default retrieval while remaining auditable. Prefer this over deletion.
+
+### What to save
+
+**Do save:** gotchas that cost you time; architectural decisions and their rationale; patterns specific to this codebase; non-obvious behaviour you discovered; key file paths and what they're for.
+
+**Don't save:** obvious or well-documented behaviour; temporary workarounds; session-specific state such as the current task or in-progress work; anything that changes weekly.
+
+## MCP Tools
+
+Memory is exposed through the buildd MCP server. See the [MCP Server](/docs/integrations/mcp-server) page for setup.
+
+| Tool | Purpose |
+|------|---------|
+| `recall` | Read team knowledge |
+| `learn` | Write a durable lesson |
+| `buildd_memory` | Legacy combined tool — still callable, but `recall` / `learn` are the current interface |
+
+Memory is also available as an MCP resource at `buildd://workspace/memory`, which returns recent memories for the workspace.
+
+## Maintenance (admin)
+
+Admin-level API keys get two extra actions on the `buildd` tool:
+
+| Action | Description |
+|--------|-------------|
+| `consolidate_knowledge` | Surface near-duplicate entries (`op=find_duplicates`), find never-retrieved decayed entries (`op=find_decayed`), or archive a batch (`op=archive`, recoverable) |
+| `memory_delete` | Permanently remove one memory by `id`. A compliance operation — prefer `supersedes` for ordinary soft-deletion |
 
 ## API Reference
 
-Memory is accessed through workspace proxy routes that forward to the memory service:
+Memory is also reachable over HTTP through the workspace routes. All memory endpoints accept both API key (Bearer token) and session auth.
 
-### List / Search Memories
+### List / search memories
 
 ```
 GET /api/workspaces/{id}/memory?query=...&type=...&limit=10
 ```
 
-### Create Memory
+### Create memory
 
 ```
 POST /api/workspaces/{id}/memory
@@ -129,7 +165,7 @@ Content-Type: application/json
 }
 ```
 
-### Update Memory
+### Update memory
 
 ```
 PATCH /api/workspaces/{id}/memory/{memoryId}
@@ -141,25 +177,12 @@ Content-Type: application/json
 }
 ```
 
-### Delete Memory
+### Delete memory
 
 ```
 DELETE /api/workspaces/{id}/memory/{memoryId}
 ```
 
-All memory endpoints support dual authentication — both API key (Bearer token) and session auth.
+## Self-Hosting
 
-## MCP Server Usage
-
-The `buildd_memory` tool exposes six actions:
-
-| Action | Description |
-|--------|-------------|
-| `context` | Load relevant memories for the current project |
-| `search` | Search memories by query, type, files, or tags |
-| `save` | Save a new memory |
-| `get` | Retrieve a specific memory by ID |
-| `update` | Update an existing memory by ID |
-| `delete` | Delete a memory by ID |
-
-Memory is also available as an MCP resource at `buildd://workspace/memory`, which returns recent memories for the workspace.
+Memory needs no separate deployment. It is a table in buildd's Postgres database, so a self-hosted buildd has working memory as soon as migrations have run — no `MEMORY_API_URL`, no `MEMORY_ROOT_KEY`, no second service. See [Self-Hosting](/docs/deployment/self-hosting).
