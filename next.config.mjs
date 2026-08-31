@@ -20,12 +20,27 @@ const memoryRedirects = [
   ['/memory/mcp/tools', '/docs/integrations/mcp-server#recall-and-learn--team-knowledge'],
 ].map(([source, destination]) => ({ source, destination, permanent: true }));
 
+/**
+ * Retired feature pages.
+ *
+ * - "Recipes" (workflow templates) was removed from the product in June 2026;
+ *   its endpoints are gone. Planning mode is the surviving mechanism for
+ *   turning one request into a dependency-wired tree of child tasks.
+ * - "Objectives" was renamed to "missions". The concept survives under the new
+ *   name, so the old URL points at the rewritten page.
+ */
+const retiredFeatureRedirects = [
+  ['/docs/features/recipes', '/docs/features/planning-mode'],
+  ['/docs/features/objectives', '/docs/features/missions'],
+].map(([source, destination]) => ({ source, destination, permanent: true }));
+
 /** @type {import('next').NextConfig} */
 const config = {
   reactStrictMode: true,
   async redirects() {
     return [
       ...memoryRedirects,
+      ...retiredFeatureRedirects,
       // Anything else under /memory, including the old `.mdx` plaintext URLs.
       { source: '/memory/:path*', destination: '/docs/features/memory', permanent: true },
     ];

@@ -1,0 +1,302 @@
+---
+title: Missions
+description: Team-scoped goals that group tasks, track progress, and gate their own completion
+---
+
+# Missions
+
+A **mission** is a goal that tasks are linked to. It groups related work, tracks
+progress automatically, can drive itself on a recurring schedule, and can refuse
+to close until measurable criteria pass.
+
+<Callout type="info">
+Missions were previously called **objectives**. The rename is complete: there is
+no `manage_objectives` action and no `/api/objectives` endpoint. If you pass
+`objectiveId` to `create_task` it will not be quietly ignored — `create_task`
+validates against a strict allowlist and hard-errors with
+`Unknown create_task parameter(s): objectiveId`. The field you want is
+`missionId`.
+</Callout>
+
+## Creating Missions
+
+### Dashboard
+
+Navigate to **Missions**, then fill in the title, optional description,
+priority, workspace, and schedule.
+
+### MCP
+
+`manage_missions` is an **admin-level** action:
+
+```
+buildd action=manage_missions params={
+  action: "create",
+  title: "Improve API response times",
+  description: "Target p99 under 200ms for all endpoints"
+}
+```
+
+### API
+
+```bash
+curl -X POST https://buildd.dev/api/missions \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "title": "Improve API response times" }'
+```
+
+## Linking Tasks
+
+Tasks link to a mission on creation, by linking an existing task, or
+automatically via inheritance:
+
+```
+# Create a task under a mission
+buildd action=create_task params={
+  title: "Profile slow endpoints",
+  description: "...",
+  missionId: "<mission-id>"
+}
+
+# Link an existing task
+buildd action=manage_missions params={
+  action: "link_task",
+  missionId: "<mission-id>",
+  taskId: "<task-id>"
+}
+
+# Unlink a task
+buildd action=manage_missions params={
+  action: "unlink_task",
+  taskId: "<task-id>"
+}
+```
+
+IDs are full UUIDs. The dashboard displays 8-character prefixes, which the API
+rejects — take the full ID from the task URL or an API response.
+
+### Auto-Inheritance
+
+When an agent working on a mission-linked task creates child tasks with
+`create_task`, those children inherit the caller's `missionId` automatically. All
+related work stays attached to the mission without manual linking.
+
+## Progress Tracking
+
+Progress is computed from linked tasks and returned alongside the mission, with
+`totalTasks`, `completedTasks`, `progress` and per-status `segments`, plus
+`activeAgents` for work currently running.
+
+Coordination and planning tasks are classified as housekeeping and **excluded**
+from the percentage, so a mission whose real work is done reads 100% even if a
+heartbeat cycle failed. See [Autonomous
+Operation](/docs/features/autonomous) for the details of that distinction.
+
+## Scheduled Missions
+
+A mission with a cron expression creates a [schedule](/docs/features/schedules)
+that opens a [planning-mode](/docs/features/planning-mode) task each tick:
+
+```
+buildd action=manage_missions params={
+  action: "create",
+  title: "Weekly code quality check",
+  workspaceId: "<workspace-id>",
+  cronExpression: "0 9 * * 1"
+}
+```
+
+Each cycle receives the mission's title, description, and task history, then
+decides what work is still needed and files it. Recurring check-ins are
+configured through the same action — see
+[Heartbeat Monitoring](/docs/features/heartbeat).
+
+### Deferred and Held Starts
+
+A mission can be created now but held inert:
+
+- `startAt` (future ISO 8601), `startIn` (`45m`, `3h`, `2d`), or `startAfter: "budget_reset"` defer the first cycle. The mission is active but produces nothing until the start resolves.
+- `startMode: "held"` blocks **all** task claims for the mission until you release it with `action: "arm"`. Force-starting a single task from the dashboard bypasses the gate.
+
+```
+buildd action=manage_missions params={ action: "arm", missionId: "<mission-id>" }
+```
+
+## Goal Criteria
+
+`goalCriteria` are completion gates that **block** the mission from closing until
+they pass. Prefer a mechanical criterion — one whose verdict is a command's exit
+code or a fact read from the database:
+
+```
+buildd action=manage_missions params={
+  action: "update",
+  missionId: "<mission-id>",
+  goalCriteria: [
+    { type: "command", command: "bun run test", label: "tests green" },
+    { type: "all_prs_merged" }
+  ]
+}
+```
+
+| Type | Verdict comes from |
+|------|--------------------|
+| `command` | Buildd dispatches a verification task; the exit code is the result |
+| `all_prs_merged` | Database state |
+| `no_open_tasks` | Database state |
+| `artifact_exists` | Database state |
+| `description` | Prose graded by a model |
+| `metric` | Nothing — no evaluator exists yet |
+
+Two traps worth knowing:
+
+- `description` needs a model reachable at the moment a verdict is owed. When one isn't, it degrades to *not evaluated*, which never counts as a pass. Because of that it requires a `notMechanizableReason` of at least 10 characters explaining why no mechanical form fits; writes without it are rejected.
+- `metric` has **no evaluator**, so it stays unverified and blocks completion forever. Do not use it as a gate.
+
+Criteria are evaluated automatically unless you set `autoVerify: false`, and
+evaluation also fires when all of a mission's tasks are done. You can also
+trigger it on demand, or read the last result without re-running:
+
+```
+buildd action=manage_missions params={ action: "evaluate", missionId: "<mission-id>" }
+buildd action=manage_missions params={ action: "get_criteria_state", missionId: "<mission-id>" }
+```
+
+`evaluate` is rate-limited to 6 calls per hour. If completion is refused, the
+reason is posted to the mission feed.
+
+## Throughput and Budget
+
+| Param | Effect |
+|-------|--------|
+| `maxConcurrentTasks` | Mission-level parallel cap (1–20). Raises the effective workspace cap when larger, and can lower it for missions that need serialization. |
+| `pacingMode` | `eager` (default) starts every claimable task immediately; `paced` enforces a minimum interval between starts. |
+| `pacingMaxPerHour` | Task starts per hour when `pacingMode: "paced"`. Defaults to 1. |
+| `costBudgetUsd` | Pause the mission and notify when cumulative worker spend reaches this threshold. |
+
+## Sequencing Missions
+
+One mission can wait on another:
+
+```
+buildd action=manage_missions params={
+  action: "update",
+  missionId: "<downstream-mission-id>",
+  dependsOnMission: "<upstream-mission-id>",
+  gateCondition: "merged"
+}
+```
+
+`gateCondition` is `merged` (upstream PRs landed) or `completed` (upstream
+mission status reached `completed`).
+
+## Mission Lifecycle
+
+| Status | Description |
+|--------|-------------|
+| `active` | Default. Agents work on linked tasks. |
+| `paused` | Temporarily suspended. |
+| `completed` | Goal achieved and any goal criteria passed. |
+| `archived` | Hidden from active views. |
+| `budget_exhausted` | Set automatically when `costBudgetUsd` is reached. |
+
+```
+buildd action=manage_missions params={
+  action: "update",
+  missionId: "<mission-id>",
+  status: "completed"
+}
+```
+
+Setting `completed` is a request, not a guarantee: Buildd counts open tasks and
+evaluates goal criteria, and refuses the transition if either does not clear.
+
+## Workspace Pinning
+
+Missions are team-scoped by default. Pin one to a workspace to scope its work and
+schedule:
+
+```
+buildd action=manage_missions params={
+  action: "create",
+  title: "Fix CI pipeline",
+  workspaceId: "<workspace-id>"
+}
+```
+
+## Model Routing
+
+Prefer a **tier** so dispatch follows your team's model registry rather than a
+hardcoded model name:
+
+| Tier | Use case |
+|------|----------|
+| `budget` | Lightweight planning and triage |
+| `standard` | Balanced planning and execution |
+| `premium` | Complex reasoning and execution |
+
+Exact model IDs still work for pinning, and legacy shorthands are still accepted,
+but tier-first routing survives model upgrades.
+
+Missions can also carry `skillSlugs` to attach [skills](/docs/features/skills) to
+every task they spawn, and `backend` (`claude` or `codex`) to set the default
+agent engine.
+
+## Managing via MCP
+
+All actions belong to `manage_missions`, which is admin-level.
+
+| Action | Params | Description |
+|--------|--------|-------------|
+| `list` | `workspaceId?, status?` | List missions |
+| `create` | `title, description?, workspaceId?, initiativeId?, cronExpression?, priority?, skillSlugs?, model?` | Create a mission |
+| `get` | `missionId` | Get a mission with tasks and progress |
+| `update` | `missionId, title?, description?, status?, cronExpression?, priority?, skillSlugs?, model?` | Update a mission |
+| `delete` | `missionId` | Delete a mission (tasks preserved) |
+| `link_task` | `missionId, taskId` | Link a task to a mission |
+| `unlink_task` | `taskId` | Remove a task from its mission |
+| `arm` | `missionId` | Release a held mission so its tasks become claimable |
+| `evaluate` | `missionId` | Evaluate goal criteria on demand (6/hour) |
+| `get_criteria_state` | `missionId` | Read the last criteria result without re-evaluating |
+
+## API Reference
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/missions` | List missions with progress. Query: `?status=&workspaceId=` |
+| `POST` | `/api/missions` | Create a mission |
+| `GET` | `/api/missions/{id}` | Get a mission with linked tasks and progress |
+| `PATCH` | `/api/missions/{id}` | Update mission fields |
+| `DELETE` | `/api/missions/{id}` | Delete a mission |
+| `POST` | `/api/missions/{id}/link` | Link a task to the mission |
+| `POST` | `/api/missions/{id}/run` | Start a mission cycle now |
+| `POST` | `/api/missions/{id}/evaluate` | Evaluate goal criteria |
+| `GET` | `/api/missions/{id}/evaluate` | Read the last criteria state |
+| `POST` | `/api/missions/{id}/reconcile` | Reconcile mission state against its tasks |
+| `GET` | `/api/missions/{id}/artifacts` | List mission-level artifacts |
+| `POST` | `/api/missions/{id}/artifacts` | Attach a mission-level artifact |
+| `GET` | `/api/missions/{id}/notes` | Read the mission feed |
+| `POST` | `/api/missions/{id}/notes` | Post to the mission feed |
+
+### Example
+
+```bash
+# Create a mission
+curl -X POST https://buildd.dev/api/missions \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Ship v2.0",
+    "description": "Complete all v2 features",
+    "priority": 10,
+    "cronExpression": "0 9 * * 1",
+    "workspaceId": "<workspace-id>"
+  }'
+
+# Read it back with progress
+curl https://buildd.dev/api/missions/{id} \
+  -H "Authorization: Bearer bld_xxx"
+```
+
+Requires session auth or an **admin-level** API key.
