@@ -25,6 +25,8 @@ Teams are the isolation boundary: one team never sees another team's memories.
 
 Every memory has a type describing the kind of knowledge it captures. Picking the right one helps agents rank and filter what they retrieve.
 
+Five types can be **written** by `learn`:
+
 | Type | Purpose | Example |
 |------|---------|---------|
 | `gotcha` | Non-obvious bugs or traps | "neon-http driver doesn't support interactive transactions" |
@@ -42,6 +44,16 @@ Choosing between them:
 | "We chose X because Y" | `decision` |
 | "I just found out that..." | `discovery` |
 | "Here's how the system is put together" | `architecture` |
+
+### `summary` — legacy, read-only
+
+There is a sixth type, `summary`, which **can no longer be created** — `learn` and the memory write API reject it. But it is not gone: `summary` rows make up roughly 80% of existing memories (the single largest type, by a wide margin), they are returned by `recall` and the search API like any other type, and `type: "summary"` remains a valid **read** filter.
+
+<Callout type="warn">
+  Don't mistake "can't be written" for "doesn't exist". If you filter reads to the five writable types, you are excluding the majority of the corpus. Omit the `type` filter, or pass `summary` explicitly, when you want the full picture.
+</Callout>
+
+Writes of `summary` stopped in August 2026 when type validation was tightened; the historical rows were deliberately left in place. Treat it as an archive to read, not a type to reach for — for new work, one of the five above is always the right choice.
 
 ## How Agents Use Memory
 
@@ -65,7 +77,7 @@ recall query="auth middleware" files=["packages/core/db/schema.ts"]
 |-------|-------------|
 | `query` | Natural language query: task title, error text, or concept. Required unless `id` is given |
 | `id` | Direct fetch by memory ID — bypasses ranking; all other params are ignored |
-| `type` | Filter to `gotcha`, `pattern`, `decision`, `discovery`, or `architecture` |
+| `type` | Filter to `gotcha`, `pattern`, `decision`, `discovery`, `architecture`, or the legacy `summary` |
 | `files` | Narrow to entries touching these paths |
 | `limit` | Max results (default 10) |
 | `scope` | Corpus to search (default `memory`) — see below |
@@ -90,7 +102,7 @@ learn type="gotcha" \
 
 | Param | Required | Description |
 |-------|----------|-------------|
-| `type` | Yes | `gotcha`, `pattern`, `decision`, `discovery`, or `architecture` |
+| `type` | Yes | `gotcha`, `pattern`, `decision`, `discovery`, or `architecture`. The legacy `summary` is rejected on write |
 | `title` | Yes | Short title |
 | `content` | Yes | The lesson — what the next agent would have wanted to know |
 | `files` | No | Related file paths, for searchability |

@@ -148,7 +148,7 @@ Memories are stored in buildd's own database, isolated per team and optionally s
 |-------|-------------|
 | `query` | Natural language query: task title, error text, or concept. Required unless `id` is given |
 | `id` | Direct fetch by memory ID — bypasses ranking; all other params ignored |
-| `type` | `gotcha`, `pattern`, `decision`, `discovery`, or `architecture` |
+| `type` | `gotcha`, `pattern`, `decision`, `discovery`, `architecture`, or the legacy read-only `summary` |
 | `files` | Narrow to entries touching these paths |
 | `limit` | Max results (default 10) |
 | `scope` | Corpus to search: `memory` (default), `task`, `pr`, `plan`, `artifact`, `code`, `docs`, `spec` |
@@ -157,7 +157,7 @@ Memories are stored in buildd's own database, isolated per team and optionally s
 
 | Param | Required | Description |
 |-------|----------|-------------|
-| `type` | Yes | `gotcha`, `pattern`, `decision`, `discovery`, or `architecture` |
+| `type` | Yes | `gotcha`, `pattern`, `decision`, `discovery`, or `architecture`. `summary` is rejected on write |
 | `title` | Yes | Short title |
 | `content` | Yes | The lesson — what the next agent should know |
 | `files` | No | Related file paths |
@@ -184,7 +184,10 @@ learn type="gotcha" title="neon-http supports transactions from v0.10" content="
 ```
 
 <Callout type="warn">
-  `scope` is not the same field on both tools. On `recall` it picks the corpus to search; on `learn` it is the project/monorepo name.
+  Two asymmetries to watch:
+
+  - `scope` is not the same field on both tools. On `recall` it picks the corpus to search; on `learn` it is the project/monorepo name.
+  - The readable and writable type sets differ. `learn` accepts five types; `recall` also accepts the legacy `summary`, which holds most of the existing corpus and can no longer be written. Filtering reads to the five writable types silently hides the majority of memories — see [Memory](/docs/features/memory#summary--legacy-read-only).
 </Callout>
 
 #### `buildd_memory` (legacy)
