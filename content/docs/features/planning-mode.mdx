@@ -1,59 +1,125 @@
 ---
 title: Planning Mode
-description: Review agent implementation plans before they start coding
+description: How planning tasks are created, how plans are returned, and how they become child tasks
 ---
 
 # Planning Mode
 
-Tasks can be created in **planning mode**, which requires the agent to submit an implementation plan for human review before writing any code.
+A task in **planning mode** does not write code. It investigates, returns a
+structured plan, and then waits for that plan to be approved — at which point
+Buildd materializes the plan's steps into child execution tasks.
 
 ## Task Modes
 
 | Mode | Behavior |
 |------|----------|
 | `execution` | Default. Worker claims the task and starts implementing immediately. |
-| `planning` | Worker investigates the codebase, submits a plan, then waits for approval before implementing. |
+| `planning` | Worker investigates, returns a plan as structured output, then stops. Approval creates the child tasks that do the work. |
 
-Set the mode when creating a task:
+`mode` is a task column whose only values are `execution` and `planning`, and it
+defaults to `execution`.
 
-```bash
-curl -X POST https://buildd.dev/api/tasks \
-  -H "Authorization: Bearer bld_xxx" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workspaceId": "ws_xxx",
-    "title": "Refactor auth middleware",
-    "description": "Consolidate auth logic into shared middleware",
-    "mode": "planning"
-  }'
-```
+## How Planning Tasks Get Created
+
+<Callout type="warn">
+You cannot create a planning task directly, by either public write path.
+`POST /api/tasks` accepts a `mode` field in the request body but never reads it —
+it hardcodes `mode: 'execution'` on insert, so passing `"mode": "planning"` is
+silently ignored. The MCP `create_task` action is stricter: `mode` is absent from
+its parameter allowlist, so passing it fails loudly with
+`Unknown create_task parameter(s): mode`.
+</Callout>
+
+Planning tasks are created by the orchestration layer instead. These are the
+paths that produce one:
+
+| Trigger | What creates the planning task |
+|---|---|
+| **Mission organizer cycle** | The most common path by far. Every mission cycle — auto-start, the dashboard **Run** button, or a [heartbeat](/docs/features/heartbeat) tick — opens a planning task to decide what work the mission needs next. |
+| **Mission schedule** | Creating a mission with a cron expression or heartbeat writes a task template with `mode: 'planning'`; each cron tick materializes that template into a real planning task. |
+| **Plan rejection** | Rejecting a plan creates a *new* planning task titled `<original> (revised)`, carrying your feedback, so the agent can try again. |
+| **Mission completion evaluation** | When a planning cycle asserts the mission is complete but the deterministic completion check refuses, Buildd opens an independent `Evaluate mission completion: <title>` planning task to adjudicate. |
+| **Slack `/buildd`** | The [Slack](/docs/features/slack) slash command files its request as a planning task. |
+| **Discord `/buildd`** | The [Discord](/docs/features/discord) slash command does the same. |
+
+So in practice: **to get planning behaviour, create a mission**, and let its
+organizer cycle plan. See [Missions](/docs/features/missions).
+
+A database constraint allows at most **one in-flight planning task per mission**
+(a partial unique index over non-terminal planning rows), so a mission cannot
+accumulate competing planning cycles. Completed and failed planning tasks do not
+block the next cycle.
 
 ## Workflow
 
-### 1. Worker Claims Task
+### 1. Worker Claims the Task
 
-The worker claims the planning-mode task like any other task. The task mode is included in the claim response.
+The worker claims a planning-mode task like any other task. The mode is included
+in the claim response, and the runner uses it to request structured output.
 
-### 2. Worker Submits Plan
+### 2. Worker Returns a Plan as Structured Output
 
-Instead of implementing directly, the worker investigates the codebase and submits a plan:
+The plan must come back as **validated JSON in the task's structured output**,
+not as markdown the agent prints. The runner automatically constrains every
+planning task to the planning schema, and the plan is submitted with
+`complete_task`:
 
-```bash
-# Via MCP server
-buildd_submit_plan \
-  --workerId "worker-id" \
-  --plan "## Plan\n\n1. Extract auth logic from route handlers\n2. Create shared middleware in lib/auth.ts\n3. Update all API routes to use middleware\n\n## Files to Change\n- src/app/api/*/route.ts\n- src/lib/auth.ts (new)"
+```
+buildd action=complete_task params={
+  summary: "Plan for consolidating auth middleware",
+  structuredOutput: {
+    plan: [
+      {
+        ref: "extract",
+        title: "Extract auth logic into shared middleware",
+        description: "Move the per-route auth checks into lib/auth.ts. Runs in a fresh session with no memory of this plan, so state everything needed.",
+        outputRequirement: "pr_required"
+      },
+      {
+        ref: "adopt",
+        title: "Update API routes to use the middleware",
+        description: "Replace the inline checks in each route handler with the shared middleware.",
+        dependsOn: ["extract"],
+        outputRequirement: "pr_required"
+      }
+    ],
+    summary: "Extract first, then adopt across routes.",
+    missionComplete: false
+  }
+}
 ```
 
-The plan is submitted as markdown and stored on the worker. The worker status changes to `awaiting_plan_approval`.
+`plan`, `summary` and `missionComplete` are required. Each step requires `ref`,
+`title` and `description`, and may also set `dependsOn`, `baseBranch`,
+`roleSlug`, `outputRequirement`, `priority`, `kind` and `complexity`.
 
-### 3. Admin Reviews Plan
+Two things are worth calling out:
 
-The task author (or any admin) reviews the plan in the dashboard or via the API/MCP.
+- **`dependsOn` is load-bearing.** A step you leave undeclared is treated as
+  independent and becomes claimable immediately, so it can run at the same time
+  as the step it actually needed. The agent then finds no PR and the attempt is
+  wasted.
+- **A planning task that completes without structured output is force-failed.**
+  The server rejects it with "the plan was not returned as validated JSON, so no
+  child tasks could be created" rather than completing a task that produced
+  nothing actionable.
+
+`update_progress` also accepts a `plan` parameter, but that is only a progress-log
+milestone for the dashboard timeline. It does **not** produce a reviewable plan
+and does not gate anything.
+
+### 3. The Plan Is Reviewed
+
+A planning task that has completed is awaiting review. There is no dedicated
+status for this — the review state is derived from the pair
+(`mode = 'planning'`, `status = 'completed'`), which the dashboard surfaces as
+the **plan_review** phase. Both approve and reject reject anything that is not
+in exactly that state.
 
 #### Dashboard — Plan Review Panel
 
-When a planning task completes with a plan, the task detail page displays a **Plan Review Panel** showing each proposed step with its reference code, title, description, dependencies, and required capabilities. Two buttons are available:
+The task detail page displays a **Plan Review Panel** showing each proposed step
+with its ref, title, description, dependencies, and required capabilities:
 
 - **Approve Plan** — creates child execution tasks from the plan steps, with [dependencies](/docs/features/dependencies) wired automatically
 - **Reject Plan** — opens a feedback form; submitting creates a new planning task with the feedback attached for the agent to revise
@@ -81,29 +147,37 @@ buildd action=reject_plan params={ taskId: "...", feedback: "Add tests" }
 
 ### 4. Child Tasks Execute
 
-After approval, Buildd creates one child task per plan step using a two-pass approach:
+On approval, Buildd creates one child task per plan step using a two-pass
+approach:
 
-1. All tasks are created with the interpolated titles and descriptions
-2. Inter-step `dependsOn` references are resolved to actual task IDs
+1. All tasks are created with an empty `dependsOn`, so every step has a real ID
+2. Each step's `dependsOn` and `baseBranch` refs are resolved to those IDs and branch names
 
-Child tasks respect the `mode`, `priority`, and `outputRequirement` from each plan step. Workers claim and execute them like any other task, with [dependency blocking](/docs/features/dependencies) enforced automatically.
+Child tasks inherit each step's `priority`, `outputRequirement`, `roleSlug` and
+`baseBranch`. They are always created in **execution** mode — plan steps have no
+mode of their own, so approving a plan never produces another planning task.
+Workers claim and execute them like any other task, with [dependency
+blocking](/docs/features/dependencies) enforced automatically.
 
 ### 5. Auto-Aggregation
 
-When **all child tasks** of a planning parent complete, Buildd automatically creates an aggregation task. This task collects the results from all children so a worker can produce a final summary or deliverable. Duplicate aggregation tasks are prevented — only one is created per planning parent.
+When **all child tasks** of a planning parent complete, Buildd automatically
+creates an `Aggregate results: <parent title>` task so a worker can collect the
+children's results into a final summary or deliverable. The aggregation task
+itself runs in execution mode. Duplicate aggregation tasks are prevented — only
+one is created per planning parent.
 
-## Requesting Plans Mid-Task
+## Steering a Running Worker
 
-Admins can also request a plan from an already-running worker using the instruction system:
+You cannot ask an already-running worker to switch into planning mode. What you
+can do is steer it mid-flight with an admin message:
 
-```bash
-buildd_send_instruction \
-  --workerId "worker-id" \
-  --message '{"type": "request_plan", "message": "Please submit a plan before continuing"}'
+```
+buildd action=send_agent_message params={
+  taskId: "...",
+  message: "Stop implementing and write up your intended approach in the task notes first"
+}
 ```
 
-The worker receives this as a structured instruction and pauses implementation to submit a plan.
-
-## Plan Expiration
-
-Plans that go unreviewed are automatically expired during cleanup. The `buildd_run_cleanup` tool handles this, marking workers with expired plan approvals as failed.
+See [Worker Instructions](/docs/features/worker-instructions) for delivery
+semantics and the urgent path.

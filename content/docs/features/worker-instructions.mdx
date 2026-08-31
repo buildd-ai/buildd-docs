@@ -1,29 +1,51 @@
 ---
 title: Worker Instructions
-description: Send real-time instructions to running workers
+description: Send real-time steering messages to running workers
 ---
 
 # Worker Instructions
 
-Admins can send instructions to workers while they are actively executing a task. Instructions are delivered on the worker's next progress update.
+Admins can send instructions to workers while they are actively executing a
+task. Use this — not `update_task` — to redirect work in progress: edits to a
+task's title or description never reach a worker that has already claimed it.
 
 ## How It Works
 
-1. Admin sends an instruction via the dashboard or MCP server
-2. The instruction is stored in the worker's `pendingInstructions` field
-3. On the worker's next `buildd_update_progress` call, the instruction is included in the response
-4. The worker reads and acts on the instruction
-5. The instruction is cleared from `pendingInstructions` and logged to `instructionHistory`
+1. An admin sends an instruction via the dashboard or the MCP server
+2. Delivery depends on priority:
+   - **Normal** — the message is stored in the worker's `pendingInstructions` field and delivered on the worker's next `update_progress` call
+   - **Urgent** — the message is pushed to the running agent immediately and is *not* queued, so the same instruction is never processed twice
+3. The worker reads and acts on the instruction
+4. The instruction is cleared from `pendingInstructions` and logged to `instructionHistory`
 
 ## Sending Instructions
 
 ### Via MCP Server
 
-```bash
-buildd_send_instruction \
-  --workerId "worker-id" \
-  --message "Focus on the authentication module first, skip the UI changes for now"
 ```
+buildd action=send_agent_message params={
+  taskId: "...",
+  message: "Focus on the authentication module first, skip the UI changes for now"
+}
+```
+
+Add `priority: "urgent"` to deliver instantly instead of waiting for the next
+check-in:
+
+```
+buildd action=send_agent_message params={
+  taskId: "...",
+  message: "Stop and re-read the migration guide before touching the schema",
+  priority: "urgent"
+}
+```
+
+`send_agent_message` is **admin-level**. A 401 on this action means your token
+lacks admin level, not that your session expired — verify with `list_schedules`,
+which is available at every token level, before re-authenticating.
+
+Note that the MCP action is addressed by **`taskId`**, while the REST endpoint
+below is addressed by worker ID.
 
 ### Via API
 
@@ -33,52 +55,32 @@ Content-Type: application/json
 Authorization: Bearer bld_xxx
 
 {
-  "message": "Focus on the authentication module first"
+  "message": "Focus on the authentication module first",
+  "priority": "urgent"
 }
 ```
 
 ## Worker Response
 
-When a worker calls `buildd_update_progress`, the response includes any pending instructions:
-
-```json
-{
-  "ok": true,
-  "instructions": "Focus on the authentication module first"
-}
-```
-
-The MCP server surfaces this to the agent as:
+When a worker calls `update_progress`, the response includes any pending
+instructions, which the MCP server appends to the result text as:
 
 ```
 **ADMIN INSTRUCTION:** Focus on the authentication module first
 ```
 
-## Structured Instructions
-
-Instructions can be plain text or structured JSON for specific actions:
-
-### Request Plan
-
-```json
-{
-  "type": "request_plan",
-  "message": "Please submit a plan before continuing with the refactor"
-}
-```
-
-The worker receives this as a plan request and pauses to submit an implementation plan via `buildd_submit_plan`.
-
 ## Instruction History
 
-All instructions and responses are logged in the `instructionHistory` array on the worker record:
+Instructions and worker responses are logged in the `instructionHistory` array
+on the worker record:
 
 ```json
 [
   {
     "type": "instruction",
     "message": "Focus on auth module first",
-    "timestamp": 1707000000000
+    "timestamp": 1707000000000,
+    "deliveryState": "pending"
   },
   {
     "type": "response",
@@ -88,8 +90,15 @@ All instructions and responses are logged in the `instructionHistory` array on t
 ]
 ```
 
-This history is visible in the dashboard for audit purposes.
+`deliveryState` distinguishes `pending` (queued, not yet picked up) from
+`delivered` (the worker received it). This history is visible in the dashboard
+for audit purposes.
+
+In workspaces marked as handling sensitive data, only `{ type, timestamp }` is
+retained — the message text is deliberately dropped from the history record.
 
 ## Worker Termination
 
-If a worker has been reassigned or terminated by an admin, the next `buildd_update_progress` call returns a 409 Conflict response. The MCP server handles this by telling the agent to stop working immediately.
+If a worker has been reassigned or terminated by an admin, its next
+`update_progress` call returns a 409 Conflict response. The MCP server handles
+this by telling the agent to stop working immediately.

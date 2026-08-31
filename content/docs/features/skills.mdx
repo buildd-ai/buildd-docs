@@ -106,13 +106,15 @@ With the Buildd MCP server connected, ask your agent to register a skill directl
 > Register a skill called "db-migration" with instructions for safe database migrations
 ```
 
-The agent calls `buildd_register_skill` behind the scenes. You can also browse existing skills:
+The agent calls `buildd action=register_skill` behind the scenes (an **admin-level**
+action). You can also browse existing skills:
 
 ```
 > What skills are available in this workspace?
 ```
 
-The agent calls `buildd_list_skills` and shows you what's registered.
+The agent calls `buildd action=list_skills` and shows you what's registered.
+This is admin-level too.
 
 ## Attaching Skills to Tasks
 
@@ -132,7 +134,10 @@ When creating a task, attach skills by their slugs. The agent receives the skill
 > Create a task "Review auth module" with skills code-review and security-audit
 ```
 
-The `buildd_create_task` tool accepts a `skills` array parameter. The server validates that all referenced slugs exist and are enabled.
+The `create_task` action accepts a **`skillSlugs`** array parameter. The server
+validates that all referenced slugs exist and are enabled. `create_task` uses a
+strict parameter allowlist, so a misspelled parameter name (`skills`, for
+instance) is rejected outright rather than silently dropped.
 
 ### In Scheduled Tasks
 
@@ -142,24 +147,43 @@ Skills carry through to scheduled tasks. When setting up a recurring schedule fr
 
 When a worker claims a task with skills attached, Buildd resolves the skill content and delivers it automatically:
 
-1. **Worker claims task** — Local UI polls for available work
-2. **Server resolves skills** — Matches skill slugs to the registry, bundles the full SKILL.md content and any reference files
-3. **Local UI writes files** — Skill content is written to `.claude/skills/{slug}/SKILL.md` in the project directory before the agent starts
-4. **Agent discovers skills** — Claude Code natively discovers `.claude/skills/` directories and loads them using progressive disclosure
-5. **Cleanup** — Skill files are removed from the project directory after the agent session ends
+1. **Worker claims task** — the runner polls for available work
+2. **Server resolves skills** — matches skill slugs to the registry, bundles the full SKILL.md content and any reference files
+3. **Runner writes files** — skill content is written to `~/.claude/skills/{slug}/SKILL.md` in the **user's home directory**, not the project directory
+4. **Agent discovers skills** — Claude Code natively discovers `~/.claude/skills/` and loads them using progressive disclosure
 
 ```
-project/
-└── .claude/
-    └── skills/
-        ├── code-review/
-        │   └── SKILL.md        ← Written before agent starts
-        └── security-audit/
-            ├── SKILL.md        ← Written before agent starts
-            └── CHECKLIST.md    ← Reference file from metadata
+~/.claude/
+└── skills/
+    ├── code-review/
+    │   ├── SKILL.md            ← Written before agent starts
+    │   └── .hash               ← Content hash for idempotent sync
+    └── security-audit/
+        ├── SKILL.md
+        └── CHECKLIST.md        ← Reference file from metadata
 ```
 
-This file-based delivery follows the Claude Code convention. The agent's prompt also includes a context section listing installed skills and their paths, so the agent knows what expertise is available.
+### Skills Persist Between Sessions
+
+Delivery is **idempotent and deliberately persistent**. Two consequences worth
+understanding:
+
+- **Hash-cached.** The runner stores a content hash alongside each skill. On the next claim, if the hash matches what is already on disk, the write is skipped entirely. Syncing an unchanged skill costs nothing.
+- **Never cleaned up.** Skill files are *not* removed when the agent session ends. They stay in `~/.claude/skills/` until they are overwritten by a newer version of the same slug. Because the location is the home directory rather than the repo, skills also never appear as untracked files in your working tree or risk being committed.
+
+To retire a skill from a machine, delete its directory under `~/.claude/skills/`
+yourself; disabling or deleting the skill in the registry stops future delivery
+but does not reach back and remove files already written.
+
+<Callout type="info">
+Skills attached to a **role** travel by a second, separate path: role bundles are
+staged under `~/.buildd/roles/{slug}/` and, for builder-style roles, overlaid into
+the repository working directory at `{repo}/.claude/skills/{slug}/`. That overlay
+is not cleaned up either. If you see skill files inside a checkout, they arrived
+via a role, not via the `skillSlugs` delivery described above.
+</Callout>
+
+The agent's prompt also includes a context section listing installed skills and their paths, so the agent knows what expertise is available.
 
 ## Managing Skills
 
@@ -229,18 +253,75 @@ Skills can be promoted to **roles** by setting `isRole: true`. A role is a skill
 
 | Field | Description |
 |-------|-------------|
-| `model` | Which Claude model to use (`opus`, `sonnet`, `haiku`, or `inherit`) |
+| `model` | Which model to use. Prefer a **tier** — `premium`, `standard` or `budget` — so dispatch follows your team's model registry. `inherit` follows the team default; an exact model ID pins it. |
 | `allowedTools` | Tool restrictions (empty = all tools). Options: `Read`, `Write`, `Edit`, `Bash`, `Grep`, `Glob`, `WebSearch`, `WebFetch`, `Agent`, `NotebookEdit` |
 | `canDelegateTo` | Slugs of other roles this agent can create tasks for |
-| `mcpServers` | MCP server configurations with `${VAR}` interpolation for secrets |
-| `requiredEnvVars` | Maps env var names to secret labels for credential injection |
+| `connectorRefs` | IDs of team [connectors](#connectors--how-roles-get-mcp-servers) this role mounts. **This is how a role gets MCP servers.** |
+| `defaultBackend` | Default agent engine (`claude` or `codex`) for tasks routed to this role |
 | `color` | Hex color for the role's avatar in the dashboard |
 
 Roles appear on the **Team** page with live activity (current task, status, duration). Tasks can be routed to a specific role via `roleSlug` — only workers advertising that role will claim the task.
 
+### Connectors — How Roles Get MCP Servers
+
+<Callout type="warn">
+The role fields `mcpServers` and `requiredEnvVars` are **deprecated and no longer
+used to build a role's MCP configuration**. They still exist on the record for
+back-compat, but the role bundler explicitly passes empty objects for both, and
+nothing downstream reads them to mount a server or inject an environment
+variable. Writing an MCP server config into `mcpServers` today has no effect —
+the agent will start with that server absent. Use `connectorRefs` instead.
+</Callout>
+
+Every MCP server an agent reaches is a team **connector** that a role opts into.
+Credentials are decrypted server-side at claim time and handed to the runner, so
+they never live on the role record. Attaching one is two steps:
+
+**1. Create the connector** (team admin), then enable it for the workspace under
+**Settings → Connectors**:
+
+```bash
+curl -X POST https://buildd.dev/api/connectors \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "linear",
+    "transport": "http",
+    "url": "https://mcp.linear.app/mcp",
+    "authMode": "oauth"
+  }'
+```
+
+`transport` is `http` (needs `url`) or `stdio` (needs `command`, plus optional
+`args` and an `envMapping` of env var name → secret label). `authMode` is
+`none`, `header`, `oauth` or `assertion`. Secret values are stored encrypted in
+the [secrets system](/docs/concepts/secrets).
+
+**2. Opt the role into it** by adding the connector ID to `connectorRefs`:
+
+```
+buildd action=update_skill params={
+  slug: "builder",
+  connectorRefs: ["<connector-id>"],
+  canDelegateTo: ["researcher"]
+}
+```
+
+You can also manage this from the role editor's **Connectors** section in the
+dashboard, which includes an MCP registry browser that creates (or reuses) a team
+connector and adds the reference in one action.
+
+At claim time the effective set of mounted servers is the intersection of the
+role's `connectorRefs`, the connectors enabled for that workspace, and the team's
+connectors. A task with **no `roleSlug` mounts no connectors at all** — this is
+deliberate least-privilege, and it is the usual explanation for "the agent says
+the tool isn't available". Use `buildd action=list_connectors` to check live
+health; a connector showing `auth_expired` or `disabled` will not mount.
+
 ### Example Role
 
-A "Builder" role with the buildd MCP server, all code tools, and the ability to delegate research:
+A "Builder" role with all code tools, one connector, and the ability to delegate
+research:
 
 ```json
 {
@@ -248,22 +329,16 @@ A "Builder" role with the buildd MCP server, all code tools, and the ability to 
   "slug": "builder",
   "isRole": true,
   "content": "# Builder\n\nYou ship features, fix bugs, and manage releases...",
-  "model": "inherit",
+  "model": "standard",
   "color": "#D4724A",
   "allowedTools": ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "WebSearch", "WebFetch"],
   "canDelegateTo": ["researcher"],
-  "mcpServers": {
-    "buildd": {
-      "type": "http",
-      "url": "https://buildd.dev/api/mcp",
-      "headers": { "Authorization": "Bearer ${BUILDD_API_KEY}" }
-    }
-  },
-  "requiredEnvVars": { "BUILDD_API_KEY": "buildd-api-key" }
+  "connectorRefs": ["<linear-connector-id>"]
 }
 ```
 
-MCP server configs use `${VAR}` syntax — the actual secret values are stored encrypted in the [secrets system](/docs/concepts/secrets) and injected at claim time.
+The buildd coordination server itself is always available to a worker and never
+needs a connector — it cannot be overridden by one either.
 
 ### Managing Roles via MCP
 
@@ -271,11 +346,14 @@ MCP server configs use `${VAR}` syntax — the actual secret values are stored e
 # List all roles
 buildd action=list_skills params={ isRole: true }
 
-# Update a role's MCP servers and delegation
-buildd action=update_skill params={ slug: "builder", mcpServers: {...}, canDelegateTo: ["researcher"] }
+# Update a role's connectors and delegation
+buildd action=update_skill params={ slug: "builder", connectorRefs: ["..."], canDelegateTo: ["researcher"] }
 
 # Create a new role
-buildd action=register_skill params={ name: "Ops", isRole: true, content: "...", mcpServers: {...} }
+buildd action=register_skill params={ name: "Ops", isRole: true, content: "...", connectorRefs: ["..."] }
+
+# Inspect connector health
+buildd action=list_connectors
 
 # Delete a role
 buildd action=delete_skill params={ slug: "ops" }
@@ -283,12 +361,21 @@ buildd action=delete_skill params={ slug: "ops" }
 
 ### Default Roles
 
-New workspaces are automatically seeded with two starter roles:
+Every new **team** is seeded with seven starter roles:
 
-- **Builder** — All code tools, buildd MCP, delegates to researcher
-- **Researcher** — Read/search tools, buildd MCP, delegates to builder
+| Slug | Purpose |
+|------|---------|
+| `organizer` | Plans mission cycles and files the work |
+| `builder` | Ships features, fixes bugs, opens PRs |
+| `researcher` | Read/search investigation, no code changes |
+| `writer` | Documentation and written deliverables |
+| `analyst` | Data and analysis deliverables |
+| `reviewer` | Reviews PRs and completed work |
+| `spec-validator` | Checks implementation against spec |
 
-These provide immediate value out of the box. Add more roles as your team grows.
+Seeding is team-level, not per-workspace, and is safe to re-run — it will not
+duplicate a role whose slug already exists on the team. Add more roles as your
+team grows.
 
 ## API Reference
 
@@ -326,13 +413,20 @@ For programmatic access, skills are managed through REST endpoints. Authenticati
 }
 ```
 
-### Source Types
+### The `source` Field
 
-| Source | Description |
-|--------|-------------|
-| `manual` | Created via dashboard, API, or MCP (default) |
-| `git` | Imported from a git repository |
-| `npm` | Installed from an npm package |
+`source` is **free text**, not an enum. It records provenance for humans and is
+never validated or branched on, so `register_skill` will store whatever string
+you pass. The values the product itself writes are:
+
+| Source | Written by |
+|--------|-----------|
+| `manual` | Creating a role or workspace override through the roles API or dashboard |
+| `mcp` | `register_skill`, when the caller does not supply its own `source` |
+| `system` | The seven default roles seeded for a new team |
+
+`source` may also be null. It is a label only — nothing in delivery, dispatch or
+permissions reads it.
 
 ### MCP Tools
 
@@ -366,7 +460,7 @@ curl -X POST https://buildd.dev/api/tasks \
     "workspaceId": "ws_xxx",
     "title": "Audit checkout flow UI",
     "description": "Review the checkout pages against the latest Figma designs",
-    "skills": ["ui-audit", "accessibility-check"]
+    "skillSlugs": ["ui-audit", "accessibility-check"]
   }'
 ```
 
@@ -379,7 +473,7 @@ Skills are registered at the **team level** and shared across all workspaces in 
 Each workspace can have its own skills with additional controls:
 
 - **Enabled/disabled** — toggle skills per workspace without deleting
-- **Origin tracking** — `manual` (user-created) or `promoted` (from team registry)
+- **Origin tracking** — the `origin` field is `manual` or `scan`. Every write in the product today sets `manual`; `scan` is reserved and currently unused.
 - **Custom content** — workspace skills store their own copy of the SKILL.md content
 
 ### Registering via MCP

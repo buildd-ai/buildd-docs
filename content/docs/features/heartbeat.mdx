@@ -1,96 +1,145 @@
 ---
 title: Heartbeat Monitoring
-description: Periodic health checks using a configurable workspace checklist
+description: Recurring mission check-ins driven by a configurable checklist
 ---
 
 # Heartbeat Monitoring
 
-Heartbeat monitoring lets you define a checklist of items that agents verify on a recurring schedule. Each heartbeat creates a planning task that evaluates the checklist and reports findings.
+A **heartbeat** is a recurring check-in on a [mission](/docs/features/missions).
+On each tick, Buildd opens a [planning-mode](/docs/features/planning-mode) task
+that walks a checklist, decides what the mission needs next, and files the work.
+It is the mechanism behind [autonomous operation](/docs/features/autonomous).
 
-## Setup
+Heartbeats are **a property of a mission**, not a separate object. There is no
+standalone heartbeat to create and no workspace-level heartbeat setting — you
+configure one by setting two fields on a mission.
 
-### Configure the Checklist
-
-Navigate to **Settings** in the Buildd dashboard. Each workspace has a **Heartbeat Checklist** section where you can:
-
-- Add monitoring items (e.g., "API response times under 200ms", "No error spikes in logs")
-- Remove items with the delete button
-- Items persist immediately on save
-
-### Create a Heartbeat Schedule
-
-Use the MCP server to create a recurring heartbeat:
+## Enabling a Heartbeat
 
 ```
-buildd action=create_heartbeat params={
+buildd action=manage_missions params={
+  action: "create",
+  title: "Keep production healthy",
+  workspaceId: "...",
+  isHeartbeat: true,
   cronExpression: "*/30 * * * *",
-  name: "Production Health Check"
+  heartbeatChecklist: "- [ ] API p99 under 200ms\n- [ ] No error-rate spike in the last hour\n- [ ] No certificate expiring within 30 days"
 }
 ```
 
-This creates a [schedule](/docs/features/schedules) that spawns a planning-mode task every 30 minutes. The task title defaults to **"Heartbeat: check monitored items"** with priority 3.
+<Callout type="warn">
+`heartbeatChecklist` is a **single string**, not an array. Write it as markdown —
+one `- [ ]` item per line, separated by newlines. Passing an array does not give
+you a list of items.
+</Callout>
 
-The default cron is `*/30 * * * *` (every 30 minutes) if not specified.
+Enabling a heartbeat creates a [schedule](/docs/features/schedules) named
+`Mission: <title>` whose task template runs in planning mode. If you omit
+`cronExpression`, the heartbeat defaults to **every 30 minutes**
+(`*/30 * * * *`). The dashboard offers every 30 minutes, hourly, and every 4
+hours as presets.
 
-## How It Works
+Whether a new mission starts with a heartbeat depends on how it was created:
 
-1. The schedule triggers and creates a planning-mode task
-2. A worker claims the task and reviews the heartbeat checklist
-3. The worker investigates each item and submits a plan/report
-4. You review findings in the dashboard or approve/reject via the plan review panel
+| Created via | Default |
+|---|---|
+| Dashboard, with no cron expression and no explicit `isHeartbeat` | Heartbeat **off** — the mission runs a single cycle |
+| API or MCP | Heartbeat **on** |
 
-## Managing via MCP
+Pass `isHeartbeat: false` to opt out explicitly, which also suppresses the
+schedule and the auto-started first cycle.
 
-| Action | Params | Description |
-|--------|--------|-------------|
-| `manage_heartbeat` | `action: "get"` | Retrieve current checklist |
-| `manage_heartbeat` | `action: "set", checklist: [...]` | Replace the checklist |
-| `create_heartbeat` | `cronExpression?, name?` | Create a heartbeat schedule |
+## The Checklist
 
-### Examples
+If you enable a heartbeat without supplying `heartbeatChecklist`, Buildd
+installs a substantial default checklist that drives the mission forward on its
+own. It instructs the agent to, among other things: assess which phase the
+mission is in; create coding tasks once a plan exists; retry failed tasks with
+failure context while leaving cancelled ones alone; retry the originating task
+when a PR hits merge conflicts rather than opening a separate integration task;
+declare a concrete `pathManifest` on each new task so overlapping work gets
+serialized; avoid re-implementing files another task already owns; and refuse to
+report OK when the mission has made no forward progress since the last tick.
 
-```
-# View current checklist
-buildd action=manage_heartbeat params={ action: "get" }
+Supplying your own checklist **replaces** that default, so a short custom
+checklist gives up the orchestration guidance along with it. If you only want to
+add a check, start from the default and append to it.
 
-# Update checklist
-buildd action=manage_heartbeat params={
-  action: "set",
-  checklist: [
-    "API endpoints responding under 500ms",
-    "Error rate below 1%",
-    "Database connections stable",
-    "SSL certificates not expiring within 30 days"
-  ]
-}
+The checklist is stored on the mission's schedule template rather than as a
+column on the mission, which is why it is read and written through the mission
+API rather than a dedicated endpoint.
 
-# Create hourly heartbeat
-buildd action=create_heartbeat params={
-  cronExpression: "0 * * * *",
-  name: "Hourly Infrastructure Check"
-}
-```
+### Editing the Checklist
 
-## API Reference
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/workspaces/{id}/heartbeat` | Get the checklist |
-| `PATCH` | `/api/workspaces/{id}/heartbeat` | Update the checklist |
-
-### Request/Response
+From the dashboard, open the mission detail page and edit the **Heartbeat
+Checklist** field. Via the API:
 
 ```bash
-# Get checklist
-curl https://buildd.dev/api/workspaces/{id}/heartbeat \
-  -H "Authorization: Bearer bld_xxx"
-
-# Response
-{ "checklist": ["API health", "Error rate", "DB connections"] }
-
-# Update checklist
-curl -X PATCH https://buildd.dev/api/workspaces/{id}/heartbeat \
+curl -X PATCH https://buildd.dev/api/missions/{id} \
   -H "Authorization: Bearer bld_xxx" \
   -H "Content-Type: application/json" \
-  -d '{ "checklist": ["API health", "Error rate", "DB connections", "SSL certs"] }'
+  -d '{ "heartbeatChecklist": "- [ ] API health\n- [ ] Error rate\n- [ ] DB connections" }'
 ```
+
+Or over MCP:
+
+```
+buildd action=manage_missions params={
+  action: "update",
+  missionId: "...",
+  heartbeatChecklist: "- [ ] API health\n- [ ] Error rate\n- [ ] DB connections"
+}
+```
+
+Sending an empty value clears your custom checklist. Reading the mission back
+with `action: "get"` shows the active checklist along with whether the heartbeat
+is currently running.
+
+## Active Hours
+
+A heartbeat can be confined to part of the day, so an overnight tick doesn't
+open work nobody will look at:
+
+```
+buildd action=manage_missions params={
+  action: "update",
+  missionId: "...",
+  activeHoursStart: 9,
+  activeHoursEnd: 18,
+  activeHoursTimezone: "America/New_York"
+}
+```
+
+Both hours are integers from 0 to 23 and must differ from each other.
+
+## How a Tick Works
+
+1. The schedule fires and materializes its template into a planning-mode task
+2. A worker claims it and receives the mission's context and heartbeat checklist
+3. The agent works the checklist and returns a structured plan — the follow-up work the mission needs
+4. Approving that plan creates the child execution tasks that do the work
+
+Because the task is a planning task, its plan goes through the normal
+[plan review](/docs/features/planning-mode) path.
+
+Only **one in-flight planning task per mission** is permitted, enforced by a
+database constraint. A tick that arrives while the previous cycle is still
+running will not stack up a second one.
+
+When a mission completes, its heartbeat schedule is paused automatically, so a
+finished mission stops checking in. See
+[Autonomous Operation](/docs/features/autonomous) for how heartbeat cycles are
+excluded from a mission's progress percentage.
+
+## Related MCP Parameters
+
+All of these are parameters of `manage_missions` (an **admin-level** action):
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `isHeartbeat` | boolean | Enable or disable the recurring check-in |
+| `heartbeatChecklist` | string | Markdown checklist the agent walks each tick |
+| `cronExpression` | string | Tick frequency; defaults to `*/30 * * * *` |
+| `activeHoursStart` | number | First hour (0–23) the heartbeat may run |
+| `activeHoursEnd` | number | Last hour (0–23) the heartbeat may run |
+| `activeHoursTimezone` | string | IANA timezone for the active-hours window |

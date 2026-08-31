@@ -61,15 +61,20 @@ When repositories are added or removed from the installation, Buildd updates its
 
 Workers can create pull requests through the Buildd API after pushing their changes:
 
-```bash
-# Via MCP server
-buildd_create_pr \
-  --workerId "worker-id" \
-  --title "feat: add user settings page" \
-  --head "buildd/task-123" \
-  --base "main" \
-  --body "Implements user settings with profile editing"
 ```
+# Via MCP server
+buildd action=create_pr params={
+  title: "feat: add user settings page",
+  head: "buildd/task-123",
+  base: "main",
+  body: "Implements user settings with profile editing"
+}
+```
+
+`workerId` is resolved from the calling worker's context, so you only need to
+pass it explicitly when acting on another worker's behalf. If the workspace has
+no GitHub App installation, create the PR yourself (for example with the `gh`
+CLI) and pass `prUrl` to register it against the worker.
 
 The API uses the GitHub App's installation token to create the PR on behalf of the worker. The PR URL and number are stored on the worker record for tracking.
 
