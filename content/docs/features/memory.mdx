@@ -47,10 +47,10 @@ Choosing between them:
 
 ### `summary` — legacy, read-only
 
-There is a sixth type, `summary`, which **can no longer be created** — `learn` and the memory write API reject it. But it is not gone: `summary` rows make up roughly 80% of existing memories (the single largest type, by a wide margin), they are returned by `recall` and the search API like any other type, and `type: "summary"` remains a valid **read** filter.
+There is a sixth type, `summary`, which **can no longer be created** — `learn` and the memory write API reject it. But it is not gone: if your team has been using buildd for a while, `summary` rows may well outnumber every other type combined. They are returned by `recall` and the search API like any other type, and `type: "summary"` remains a valid **read** filter.
 
 <Callout type="warn">
-  Don't mistake "can't be written" for "doesn't exist". If you filter reads to the five writable types, you are excluding the majority of the corpus. Omit the `type` filter, or pass `summary` explicitly, when you want the full picture.
+  Don't mistake "can't be written" for "doesn't exist". If you filter reads to the five writable types, you may be excluding most of your history. Omit the `type` filter, or pass `summary` explicitly, when you want the full picture.
 </Callout>
 
 Writes of `summary` stopped in August 2026 when type validation was tightened; the historical rows were deliberately left in place. Treat it as an archive to read, not a type to reach for — for new work, one of the five above is always the right choice.
