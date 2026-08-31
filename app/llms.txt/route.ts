@@ -1,20 +1,13 @@
-import { source, memorySource } from '@/lib/source';
+import { source } from '@/lib/source';
 
 export const revalidate = false;
 
 export async function GET() {
   const lines: string[] = [];
 
-  lines.push('# Task Queue Documentation');
+  lines.push('# Buildd Documentation');
   lines.push('');
   for (const page of source.getPages()) {
-    lines.push(`- [${page.data.title}](${page.url}): ${page.data.description}`);
-  }
-
-  lines.push('');
-  lines.push('# Memory Documentation');
-  lines.push('');
-  for (const page of memorySource.getPages()) {
     lines.push(`- [${page.data.title}](${page.url}): ${page.data.description}`);
   }
 
