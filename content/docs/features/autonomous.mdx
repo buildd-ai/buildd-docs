@@ -15,7 +15,7 @@ This is on by default for every workspace.
 
 ### Disabling auto-merge
 
-To require human review of every agent PR in a workspace, turn off auto-merge in **Settings → Git → Auto-merge agent PRs**.
+To require human review of every agent PR in a workspace, clear **Auto-merge on green CI** under the workspace's **Git** configuration.
 
 This applies workspace-wide. To hold individual PRs instead, use `requiresReview` on the task (see below).
 
@@ -23,62 +23,62 @@ This applies workspace-wide. To hold individual PRs instead, use `requiresReview
 
 `requiresReview: true` holds a PR open for human review before it can merge. Use it when a task or mission produces changes that warrant a manual look.
 
+<Callout type="warn">
+  `requiresReview` is a **create-time flag on the REST API only**. It is not a
+  parameter of any MCP action, and there is no PATCH route or dashboard toggle
+  that sets it after the fact. The three variants below are the ones that work.
+</Callout>
+
 ### On a task
 
-Set `requiresReview` on task create or update:
+Set `requiresReview` when you create the task:
 
 ```bash
-# MCP
-buildd action=create_task params={
-  "title": "Refactor auth middleware",
-  "description": "...",
-  "requiresReview": true
-}
-
-# API
 curl -X POST https://buildd.dev/api/tasks \
   -H "Authorization: Bearer bld_xxx" \
   -H "Content-Type: application/json" \
   -d '{ "title": "Refactor auth middleware", "requiresReview": true }'
 ```
 
-The agent creates the PR as usual, but Buildd does not merge it. A **Needs Review** badge appears on the task and the PR in the dashboard.
+The agent creates the PR as usual, but Buildd does not merge it.
 
-You can also set it on an existing task before the PR is created:
+**What does not work**
 
-```bash
-buildd action=update_task params={
-  "taskId": "task_xxx",
-  "requiresReview": true
-}
-```
+| Attempt | Result |
+|---------|--------|
+| `buildd action=create_task` with `requiresReview` | **Errors.** `create_task` rejects unknown parameters: `Unknown create_task parameter(s): requiresReview` |
+| `buildd action=update_task` with `requiresReview` | **Silently ignored.** `update_task` forwards only `title`, `description`, `priority`, `project`, `status`, `backend`, `maxLoops` |
+| `PATCH /api/tasks/{id}` with `requiresReview` | **Silently ignored.** The handler does not read the field |
 
-Via the dashboard: open the task detail page → toggle **Require review** in the task settings panel.
+To hold an already-created task, hold its PR instead — set the workspace or
+mission merge policy to `human` (below), or turn off **Auto-merge on green CI**
+for the workspace.
 
 ### On a mission
 
-Set `requiresReview` on a mission to hold every PR created by that mission's tasks:
+Set `requiresReview` on a mission to hold every PR created by that mission's tasks. Again, create-time and REST only:
 
 ```bash
-# MCP — create mission with review required
-buildd action=manage_missions params={
-  "action": "create",
-  "title": "Q3 API hardening",
-  "requiresReview": true
-}
-
-# MCP — update existing mission
-buildd action=manage_missions params={
-  "action": "update",
-  "missionId": "mission_xxx",
-  "requiresReview": true
-}
-
-# API
 curl -X POST https://buildd.dev/api/missions \
   -H "Authorization: Bearer bld_xxx" \
   -H "Content-Type: application/json" \
   -d '{ "title": "Q3 API hardening", "requiresReview": true }'
+```
+
+`buildd action=manage_missions` — with `action: "create"` or `action: "update"` —
+does **not** accept `requiresReview`. It is not in the action's parameter set, so
+it is dropped without an error and the mission is created or updated with review
+off.
+
+To require review on an existing mission, set its merge policy instead. `PATCH
+/api/missions/{id}` accepts a validated `mergePolicy`, and `tier: "human"`
+produces the same "never auto-merge" outcome:
+
+```bash
+curl -X PATCH https://buildd.dev/api/missions/{id} \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "mergePolicy": { "tier": "human" } }'
 ```
 
 `requiresReview` on a mission also gates mission completion: the mission will not auto-close until you confirm it in the dashboard (see [Mission dormancy](#mission-dormancy--auto-complete) below).
@@ -132,9 +132,9 @@ Without this distinction, a single failed heartbeat cycle would drag a complete 
 
 | Feature | Default | Override |
 |---------|---------|----------|
-| Auto-merge agent PRs | On | Settings → Git to disable workspace-wide |
+| Auto-merge agent PRs | On | Clear **Auto-merge on green CI** in the workspace Git config |
 | Release after merge | On | Workspace release config |
-| requiresReview (task) | Off | `requiresReview: true` on task create/update |
-| requiresReview (mission) | Off | `requiresReview: true` on mission create/update |
+| requiresReview (task) | Off | `requiresReview: true` on `POST /api/tasks` — create-time, REST only |
+| requiresReview (mission) | Off | `requiresReview: true` on `POST /api/missions`; afterwards, `mergePolicy: { tier: "human" }` on `PATCH /api/missions/{id}` |
 | Mission auto-complete | On | Suspended when `requiresReview: true` |
 | Progress % counts | Deliverables only | Not configurable |

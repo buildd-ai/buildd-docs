@@ -42,17 +42,35 @@ CLI / MCP Server                    Buildd Server                    Browser
 
 ## Account Level
 
-The requesting client can specify an account level:
+There are **three** levels — see [Task Access Model](/docs/concepts/task-access#roles):
 
-- `admin` — full access: create tasks, manage workspaces, send worker instructions
-- `worker` — limited access: claim tasks, report progress, save memory
+- `admin` — full access: create tasks, manage workspaces and schedules, send agent instructions
+- `worker` — claim tasks, report progress, open and merge PRs, read/write memory
+- `trigger` — file and read only; cannot claim or execute
 
 ```json
 POST /api/auth/device/code
-{ "clientName": "MCP Server", "level": "admin" }
+{ "clientName": "MCP Server", "level": "worker" }
 ```
 
-The approval flow creates or updates a named account for the user's team with the requested level.
+<Callout type="warn">
+  **Omitting `level` produces an `admin` key.** The endpoint accepts only the
+  literal strings `"worker"` and `"trigger"`; every other input — the field
+  missing, `null`, `"Worker"`, `"ADMIN"`, a typo — falls through to `admin`. The
+  `device_codes.level` column defaults to `admin` as well. Always pass `level`
+  explicitly, and pass it lowercase.
+</Callout>
+
+The approval flow creates or updates a named account for the user's team with the
+requested level, matching on `(team, account name)`.
+
+<Callout type="warn">
+  Approval **overwrites the level of an existing account with the same name**. If
+  a `worker`-level account named `Runner` already exists in the team and someone
+  completes a device flow with `clientName: "Runner"` and no `level`, that
+  account's API key is rotated *and* it is promoted to `admin`. Use a distinct
+  `clientName` per credential, and always set `level`.
+</Callout>
 
 ## Security
 
@@ -60,6 +78,7 @@ The approval flow creates or updates a named account for the user's team with th
 - **One-time key retrieval** — the plaintext API key is cleared from the database after the CLI retrieves it
 - **Human-readable codes** — `ABCD-1234` format excludes ambiguous characters (I, O) to prevent typos
 - **Session-gated approval** — only authenticated users can approve codes
+- **Unauthenticated code request** — `POST /api/auth/device/code` requires no auth; the security boundary is the browser approval step, not the code request
 
 ## API Reference
 

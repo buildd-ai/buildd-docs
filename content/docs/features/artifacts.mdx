@@ -7,11 +7,22 @@ description: Non-code deliverables that agents produce — reports, data exports
 
 Artifacts are non-code deliverables that agents produce during task execution. While code changes land in pull requests, artifacts capture everything else: analysis reports, data exports, executive summaries, curated links, and rich content.
 
-Each artifact gets a unique shareable URL that works without authentication — share a report with stakeholders who don't have a Buildd account, embed a data export link in a Slack thread, or bookmark a summary for later reference.
+<Callout type="warn">
+  **Artifacts are private when created.** The create routes insert
+  `shareToken: null, visibility: 'private'` and return `shareUrl: null`; over MCP
+  you get `Visibility: private (not shared)` instead of a URL. A public link
+  exists only after an explicit share action — `POST /api/artifacts/{id}/share`,
+  or the **Share** button on the artifact page. See
+  [Sharing an artifact](#sharing-an-artifact).
+</Callout>
+
+Once shared, an artifact gets a URL that works without authentication — hand a
+report to stakeholders who don't have a Buildd account, embed a data export link
+in a Slack thread, or bookmark a summary for later reference.
 
 ## Artifact Types
 
-### Core Types
+### Types that work everywhere
 
 | Type | Purpose | Example |
 |------|---------|---------|
@@ -20,17 +31,33 @@ Each artifact gets a unique shareable URL that works without authentication — 
 | `data` | Structured data — JSON, CSV, or tabular output | API response analysis, metrics aggregation |
 | `link` | Curated external URL with context | A deployed preview URL, a relevant GitHub issue |
 | `summary` | Concise executive summary of work performed | Sprint recap, task completion digest |
+| `file` | An uploaded file; use `upload_artifact` rather than `create_artifact` | A screenshot, a CSV export |
 
-### Specialized Types
+### Types accepted only at mission or initiative level
 
-| Type | Purpose | Example |
-|------|---------|---------|
-| `email_draft` | Email content ready to send | Outreach email, status update to stakeholders |
-| `social_post` | Social media content | Twitter thread, LinkedIn post, announcement |
-| `analysis` | Deep-dive analysis with structured findings | Competitive analysis, codebase audit |
-| `recommendation` | Decision support with options and reasoning | Technology choice, architecture recommendation |
-| `alert` | Monitoring notification with severity | Infrastructure alert, security warning |
-| `calendar_event` | Calendar-ready event data | Meeting invite, deadline reminder |
+| Type | Purpose |
+|------|---------|
+| `analysis` | Deep-dive analysis with structured findings |
+| `recommendation` | Decision support with options and reasoning |
+
+These are accepted by `POST /api/missions/{id}/artifacts` and
+`POST /api/initiatives/{id}/artifacts`, but **rejected by the worker route** with
+`400 Invalid type`. Over MCP that means you must pass `missionId` or
+`initiativeId`; a plain worker-scoped `create_artifact` with `type: "analysis"`
+fails.
+
+### Types the MCP tool advertises but no route accepts
+
+<Callout type="warn">
+  `email_draft`, `social_post`, `alert` and `calendar_event` **cannot be
+  created**. The `create_artifact` MCP action validates against a list of twelve
+  types and then POSTs to a route whose allowlist is six (worker) or eight
+  (mission/initiative). These four are in neither, so the request returns
+  `400 Invalid type. Must be one of: …` after passing MCP validation.
+
+  There is no workaround short of using one of the working types above — `content`
+  for a draft, `report` for an alert write-up.
+</Callout>
 
 All types except `link` store their content directly in the `content` field. The `link` type requires a `url` parameter, stored in metadata, with optional `content` for descriptive context.
 
@@ -46,6 +73,17 @@ Templates provide JSON schemas for structured artifact output. Workers can disco
 | `decision_recommendation` | `recommendation` | `options` (array with name/pros/cons), `recommendation`, `reasoning` |
 | `content_draft` | `content` | `title`, `body`, `targetPlatform`, `metadata` |
 | `monitoring_alert` | `alert` | `severity` (critical/high/medium/low/info), `description`, `suggestedAction`, `source` |
+
+<Callout type="warn">
+  Two of these four templates cannot be used as-is:
+
+  - `monitoring_alert` declares `type: "alert"`, which **every** artifact route
+    rejects. Use its schema with `type: "report"` instead.
+  - `decision_recommendation` declares `type: "recommendation"`, which only the
+    mission and initiative routes accept — pass `missionId` or `initiativeId`.
+
+  `research_report` (`report`) and `content_draft` (`content`) work anywhere.
+</Callout>
 
 ### Discovering Templates
 
@@ -67,24 +105,30 @@ With the Buildd MCP server connected, agents create artifacts using the `create_
 > Summarize the findings from the security audit and create a shareable report
 ```
 
-The agent calls `buildd` with `action: "create_artifact"` behind the scenes. The MCP server returns the artifact ID and a shareable URL:
+The agent calls `buildd` with `action: "create_artifact"` behind the scenes. Because the artifact is private, the MCP server reports its visibility rather than a URL:
 
 ```
 Artifact created: "Security Audit Report" (report)
 ID: a1b2c3d4-...
-Share URL: https://buildd.dev/share/xK9mP2...
+Visibility: private (not shared)
 ```
+
+A `Share URL:` line appears here only when the artifact already has a token — for
+example when an upsert by `key` matched a previously shared artifact.
 
 #### MCP Parameters
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `workerId` | Yes | The worker ID (from the active task claim) |
-| `type` | Yes | One of: `content`, `report`, `data`, `link`, `summary` |
+| `workerId` | No | Auto-resolved from the active task context; pass it to override |
+| `missionId` | No | Create a mission-level artifact, with no worker context |
+| `initiativeId` | No | Create an initiative-level artifact, with no worker context |
+| `type` | Yes | See [Artifact Types](#artifact-types) — the MCP tool accepts twelve, but the routes accept six or eight |
 | `title` | Yes | Human-readable title for the artifact |
 | `content` | No | Markdown body, JSON data, or descriptive text |
 | `url` | No | Required for `link` type — the target URL |
 | `metadata` | No | Arbitrary JSON metadata to attach |
+| `key` | No | Stable per-workspace key; a repeat create with the same key **updates** the existing artifact and preserves its share token |
 
 ### From the REST API
 
@@ -111,13 +155,17 @@ curl -X POST https://buildd.dev/api/workers/{worker-id}/artifacts \
     "type": "report",
     "title": "Weekly Performance Report",
     "content": "# Performance Summary\n\n...",
-    "shareToken": "xK9mP2qR...",
+    "shareToken": null,
+    "visibility": "private",
     "metadata": {},
     "createdAt": "2026-02-20T10:30:00Z",
-    "shareUrl": "https://buildd.dev/share/xK9mP2qR..."
+    "shareUrl": null
   }
 }
 ```
+
+`shareToken` and `shareUrl` are `null` on every fresh create. To get a link, call
+the share endpoint below with the returned `id`.
 
 #### Creating a Link Artifact
 
@@ -137,9 +185,47 @@ curl -X POST https://buildd.dev/api/workers/{worker-id}/artifacts \
 
 The `url` is stored in the artifact's `metadata.url` field and rendered as a clickable link on the share page.
 
-## Shareable Public Links
+## Sharing an artifact
 
-Every artifact automatically gets a share token — a cryptographically random URL-safe string. The resulting share URL is public and requires no authentication:
+Sharing is a deliberate, separate step. Nothing is public until you take it.
+
+### From the dashboard
+
+Open the artifact's page and click **Share**. The button mints a token, flips
+`visibility` to `public`, and copies the URL. Clicking again after that revokes.
+
+### From the API
+
+```bash
+curl -X POST https://buildd.dev/api/artifacts/{artifact-id}/share \
+  -H "Authorization: Bearer bld_xxx"
+```
+
+**Response:**
+
+```json
+{ "shareUrl": "https://buildd.dev/share/xK9mP2qR7vLnW3..." }
+```
+
+The token is a cryptographically random URL-safe string. It is generated once and
+reused if the artifact is shared again after being revoked, so a previously
+distributed link starts working again.
+
+Auth accepts either a logged-in dashboard user who is a member of the artifact's
+workspace, or an API key that owns the artifact (via its worker) or has workspace
+access. Anything else gets `401` or `403`.
+
+### Revoking
+
+```bash
+curl -X DELETE https://buildd.dev/api/artifacts/{artifact-id}/share \
+  -H "Authorization: Bearer bld_xxx"
+```
+
+This sets `visibility` back to `private` **and nulls the token**, so the old URL
+404s permanently — a later re-share mints a new one.
+
+## The share page
 
 ```
 https://buildd.dev/share/xK9mP2qR7vLnW3...
@@ -160,6 +246,9 @@ Share tokens also work via the API for programmatic consumption:
 ```bash
 curl https://buildd.dev/api/share/{token}
 ```
+
+The lookup requires **both** a matching token and `visibility = 'public'`, so a
+revoked artifact returns `404 Not found` even with the correct token.
 
 **Response:**
 
@@ -188,7 +277,7 @@ The dashboard provides two views for browsing artifacts:
 
 Navigate to a workspace and click **Artifacts** in the header. This shows all artifacts produced by workers in that workspace, sorted by creation date (newest first). Each artifact displays its type, title, associated task, and a link to its share page.
 
-Internal artifact types used by the system (`task_plan`, `impl_plan`) are filtered out — you only see deliverable artifacts.
+Artifacts of type `impl_plan` are filtered out of both gallery views, so you only see deliverable artifacts. No other type is hidden.
 
 ### Global Artifacts
 
@@ -196,12 +285,14 @@ Navigate to **Artifacts** in the main navigation to see artifacts across all wor
 
 ## Realtime Updates
 
-When an artifact is created, Buildd pushes realtime events via Pusher:
+When an artifact is created, Buildd pushes two realtime events via Pusher:
 
-- **Worker channel** — `worker:progress` event with the artifact data and share URL
-- **Workspace channel** — `worker:artifact` event for dashboard live updates
+- **Worker channel** — `worker:progress` with `{ workerId, taskId, status, updatedAt }`
+- **Workspace channel** — `worker:artifact` with `{ workerId, taskId }`
 
-This means the artifact gallery and task detail pages update instantly without polling.
+Both payloads are deliberately thin — they carry **no artifact content and no
+share URL**. They are refresh signals; the client refetches. Don't build anything
+that expects artifact data on the wire.
 
 ## Use Cases
 
@@ -213,6 +304,7 @@ Schedule a recurring task that analyzes data and produces a report artifact:
 Task: "Generate weekly security scan report"
 → Agent runs analysis
 → Creates artifact (type: report) with findings
+→ Calls POST /api/artifacts/{id}/share to publish it
 → Share URL posted to Slack via webhook
 ```
 
@@ -224,7 +316,7 @@ Agents working with APIs or databases can export structured results:
 Task: "Audit API endpoints for deprecated fields"
 → Agent scans OpenAPI spec
 → Creates artifact (type: data) with JSON findings
-→ Stakeholders access formatted data via share link
+→ Shares it, then stakeholders access formatted data via the share link
 ```
 
 ### Executive Summaries
@@ -246,7 +338,7 @@ Agents that trigger deployments can capture the preview URL:
 Task: "Deploy feature branch to staging"
 → Agent pushes and triggers deploy
 → Creates artifact (type: link) with staging URL
-→ QA team clicks through to test
+→ QA team opens it from the workspace gallery (no share needed for team members)
 ```
 
 ## API Reference
@@ -255,9 +347,15 @@ Task: "Deploy feature branch to staging"
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/api/workers/{id}/artifacts` | API key | Create an artifact for a worker |
+| `POST` | `/api/workers/{id}/artifacts` | API key | Create (or upsert by `key`) an artifact for a worker |
 | `GET` | `/api/workers/{id}/artifacts` | API key | List all artifacts for a worker |
-| `GET` | `/api/share/{token}` | None (public) | Fetch artifact by share token |
+| `POST` | `/api/missions/{id}/artifacts` | API key or session | Create a mission-level artifact (no worker needed) |
+| `POST` | `/api/initiatives/{id}/artifacts` | API key or session | Create an initiative-level artifact |
+| `GET` | `/api/artifacts/{id}` | API key or session | Fetch a single artifact |
+| `PATCH` | `/api/artifacts/{id}` | API key or session | Update `title`, `content`, `metadata` |
+| `POST` | `/api/artifacts/{id}/share` | API key or session | Make public; returns `shareUrl` |
+| `DELETE` | `/api/artifacts/{id}/share` | API key or session | Make private and null the token |
+| `GET` | `/api/share/{token}` | None (public) | Fetch artifact by share token — requires `visibility: public` |
 
 ### Create Artifact Request
 
@@ -269,16 +367,20 @@ Content-Type: application/json
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | Yes | `content`, `report`, `data`, `link`, or `summary` |
+| `type` | string | Yes | `content`, `report`, `data`, `link`, `summary`, or `file` |
 | `title` | string | Yes | Display title |
 | `content` | string | No | Markdown, JSON, or plain text body |
 | `url` | string | No | Target URL (required for `link` type) |
 | `metadata` | object | No | Arbitrary key-value metadata |
+| `key` | string | No | Stable per-workspace key; upserts instead of appending |
+| `storageKey` | string | No | Existing object key for a stored file; must resolve inside the worker's own workspace prefix |
 
 **Validation rules:**
-- `type` must be one of the five deliverable types
+- `type` must be one of the **six** types the worker route accepts (the mission and initiative routes add `analysis` and `recommendation`)
 - `title` is required and must be a string
 - `url` is required when `type` is `link`
+- a caller-supplied `storageKey` must belong to the worker's workspace, or the request is rejected with `400`
+- in a workspace whose data class is `sensitive`, `content` and `storageKey` are forced to `null` — only a metadata stub row is stored
 
 ### Artifact Object
 
@@ -290,21 +392,49 @@ Content-Type: application/json
   "title": "Security Audit Report",
   "content": "# Findings\n\n...",
   "storageKey": null,
-  "shareToken": "xK9mP2qR7vLnW3...",
+  "shareToken": null,
+  "visibility": "private",
   "metadata": {},
   "createdAt": "2026-02-20T10:30:00Z",
-  "shareUrl": "https://buildd.dev/share/xK9mP2qR7vLnW3..."
+  "shareUrl": null
 }
 ```
 
-The `shareUrl` field is computed at response time and included in create responses. The `storageKey` field is reserved for future large-object storage support.
+`shareUrl` is computed at response time from `shareToken` — it is `null` until the
+artifact is shared, and `null` again after a revoke.
+
+`storageKey` is **not** reserved for future use. It is the live object key for
+file-backed artifacts: `upload_artifact` (and `POST /api/artifacts/upload-url`)
+derives one under the workspace's prefix, and `GET /api/artifacts/{id}/download`
+turns it into a signed download URL. You may also pass an existing key on create,
+but it must resolve inside the worker's own workspace prefix.
 
 ### MCP Tool
 
 | Tool | Action | Access | Description |
 |------|--------|--------|-------------|
-| `buildd` | `create_artifact` | All users | Create an artifact with a shareable link |
+| `buildd` | `create_artifact` | all token levels | Create a private artifact |
+| `buildd` | `list_artifacts` | all token levels | List artifacts for a workspace, mission, or initiative |
+| `buildd` | `get_artifact` | all token levels | Fetch full artifact content by ID |
+| `buildd` | `update_artifact` | `worker`, `admin` | Update `title`, `content`, `metadata` |
+| `buildd` | `upload_artifact` | `worker`, `admin` | Get a signed upload URL for a file artifact |
+| `buildd` | `list_artifact_templates` | all token levels | List templates with their JSON schemas |
 
-Parameters: `workerId` (required), `type` (required), `title` (required), `content`, `url`, `metadata`.
+`create_artifact` returns the artifact ID, title, type, and either a share URL (if
+one already exists) or `Visibility: private (not shared)`.
 
-Returns the artifact ID, title, type, and share URL.
+<Callout type="warn">
+  There is **no MCP action that shares an artifact**. Publishing requires
+  `POST /api/artifacts/{id}/share` over HTTP, or the dashboard button. An agent
+  that needs to hand out a public link has to make that call itself.
+</Callout>
+
+<Callout type="warn">
+  `upload_artifact` is the one exception, and not a useful one. It mints a
+  `shareToken` for the new file row but leaves `visibility` at `private`, then
+  prints both a `Share URL:` and a `Download URL (permanent…)`. Neither works:
+  `/share/{token}` requires `visibility: public`, and the download route rejects a
+  token unless the artifact is public. Call
+  `POST /api/artifacts/{id}/share` on the returned `artifactId` before handing
+  either URL to anyone.
+</Callout>
