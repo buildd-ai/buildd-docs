@@ -37,6 +37,12 @@ const retiredFeatureRedirects = [
   // product. features/missions is the only mission page now.
   ['/docs/missions/overview', '/docs/features/missions'],
   ['/docs/missions', '/docs/features/missions'],
+  // The Slack and Discord slash-command integrations were removed — never
+  // configured in production, and three of their documented behaviours could
+  // not occur. See docs/design/chat-integrations.md in buildd-ai/buildd for the
+  // rebuild notes. MCP is the supported way to drive buildd from elsewhere.
+  ['/docs/features/slack', '/docs/integrations/mcp-server'],
+  ['/docs/features/discord', '/docs/integrations/mcp-server'],
 ].map(([source, destination]) => ({ source, destination, permanent: true }));
 
 /** @type {import('next').NextConfig} */

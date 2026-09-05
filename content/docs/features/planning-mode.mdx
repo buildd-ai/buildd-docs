@@ -39,8 +39,6 @@ paths that produce one:
 | **Mission schedule** | Creating a mission with a cron expression or heartbeat writes a task template with `mode: 'planning'`; each cron tick materializes that template into a real planning task. |
 | **Plan rejection** | Rejecting a plan creates a *new* planning task titled `<original> (revised)`, carrying your feedback, so the agent can try again. |
 | **Mission completion evaluation** | When a planning cycle asserts the mission is complete but the deterministic completion check refuses, Buildd opens an independent `Evaluate mission completion: <title>` planning task to adjudicate. |
-| **Slack `/buildd`** | The [Slack](/docs/features/slack) slash command files its request as a planning task. |
-| **Discord `/buildd`** | The [Discord](/docs/features/discord) slash command does the same. |
 
 So in practice: **to get planning behaviour, create a mission**, and let its
 organizer cycle plan. See [Missions](/docs/features/missions).
