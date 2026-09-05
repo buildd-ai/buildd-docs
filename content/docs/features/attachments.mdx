@@ -1,25 +1,46 @@
 ---
 title: Task Attachments
-description: Attach images to tasks using presigned upload URLs
+description: Attach files to tasks using presigned upload URLs
 ---
 
 # Task Attachments
 
-Tasks can include image attachments — screenshots, mockups, diagrams — that give agents visual context alongside the text description.
+Tasks can carry file attachments — screenshots, mockups, diagrams, logs — that
+give agents context alongside the text description. The claiming worker receives
+each one as a short-lived signed download URL.
+
+<Callout type="warn">
+The server does **not** restrict attachments by content type. Any `mimeType` is
+accepted. Images are the intended use and the only kind the dashboard previews,
+but nothing rejects other types, so treat the limit as a convention rather than
+an enforced constraint.
+</Callout>
 
 ## How It Works
 
-Attachments use presigned URLs for direct upload to S3-compatible storage (R2, S3, etc.). The flow is:
+Attachments upload directly to S3-compatible storage (R2, S3) via presigned
+URLs, so the file never transits the buildd API:
 
 1. **Request upload URLs** — `POST /api/attachments/upload` with file metadata
-2. **Upload directly** — `PUT` the file to the returned presigned URL
-3. **Reference in task** — include the storage key in the task description or metadata
+2. **Upload directly** — `PUT` each file to its returned presigned URL
+3. **Attach to a task** — pass the storage keys in the `attachments` array on
+   `POST /api/tasks`
+
+Step 3 is a first-class field. Putting a storage key in the task description
+does nothing — nothing reads keys out of prose.
 
 ## Constraints
 
-- **Images only** — MIME type must start with `image/` (PNG, JPEG, GIF, WebP, SVG)
-- **10MB per file** — maximum individual file size
-- **5 files per request** — batch upload limit
+- **10MB per file.** `sizeBytes` is required, must be a positive integer, and is
+  signed into the grant — a file larger than it declared will fail the upload
+  rather than sneaking through. Over the limit returns `413`.
+- **5 files per request.** Over that returns `400`.
+- **Keys are workspace-scoped.** Each key is minted under the requesting
+  workspace's own prefix, and `POST /api/tasks` rejects a key from a different
+  workspace with `400`.
+- **Presigned upload URLs last 10 minutes.** Download URLs handed to workers
+  last 1 hour. Request the upload URLs immediately before uploading; a batch
+  flow that pauses for human input will find them expired.
 
 ## API Reference
 
@@ -30,12 +51,14 @@ curl -X POST https://buildd.dev/api/attachments/upload \
   -H "Authorization: Bearer bld_xxx" \
   -H "Content-Type: application/json" \
   -d '{
-    "workspaceId": "ws_xxx",
+    "workspaceId": "<workspace-id>",
     "files": [
       { "filename": "screenshot.png", "mimeType": "image/png", "sizeBytes": 245000 }
     ]
   }'
 ```
+
+`filename`, `mimeType` and `sizeBytes` are all required per entry.
 
 ### Response
 
@@ -43,7 +66,7 @@ curl -X POST https://buildd.dev/api/attachments/upload \
 {
   "uploads": [
     {
-      "storageKey": "attachments/ws_xxx/uuid/screenshot.png",
+      "storageKey": "attachments/<workspace-id>/<uuid>/screenshot.png",
       "uploadUrl": "https://storage.example.com/presigned-url...",
       "filename": "screenshot.png",
       "mimeType": "image/png"
@@ -60,6 +83,43 @@ curl -X PUT "https://storage.example.com/presigned-url..." \
   --data-binary @screenshot.png
 ```
 
+The `Content-Type` header is not optional — it must match the `mimeType` you
+submitted, or the presigned signature will not validate.
+
+### Attach to a Task
+
+```bash
+curl -X POST https://buildd.dev/api/tasks \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspaceId": "<workspace-id>",
+    "title": "Fix the layout in the attached screenshot",
+    "attachments": [
+      {
+        "storageKey": "attachments/<workspace-id>/<uuid>/screenshot.png",
+        "mimeType": "image/png",
+        "filename": "screenshot.png"
+      }
+    ]
+  }'
+```
+
+<Callout type="warn">
+All three of `storageKey`, `mimeType` and `filename` are required per entry. An
+entry missing any one of them is **dropped silently** — no error, and the agent
+never sees the file. If an attachment does not reach a worker, check the entry
+has all three keys first.
+</Callout>
+
 ## Authentication
 
-Supports both API key (`Bearer bld_xxx`) and session auth. Storage must be configured on the server (`S3_BUCKET`, `S3_ENDPOINT`, etc.) — returns `503` if not set up.
+Both API key (`Bearer bld_xxx`) and session auth work. The caller must have
+access to the `workspaceId` it names; otherwise the request returns `403`.
+
+Object storage must be configured on the server — `STORAGE_ENDPOINT`,
+`STORAGE_ACCESS_KEY` and `STORAGE_SECRET_KEY` at minimum, plus
+`STORAGE_BUCKET`, `STORAGE_REGION` and `STORAGE_PUBLIC_URL` as needed. The
+endpoint returns `503` when the first three are absent. Note that
+`STORAGE_BUCKET` is *not* part of that readiness check, so a wrong bucket name
+passes the gate and fails later at upload time.

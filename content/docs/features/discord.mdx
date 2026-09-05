@@ -1,11 +1,12 @@
 ---
 title: Discord Integration
-description: Create and manage tasks from Discord using the /buildd slash command
+description: Create tasks from Discord using the /buildd slash command
 ---
 
 # Discord Integration
 
-Connect Buildd to your Discord server to create tasks with slash commands and interact with plans via button components.
+Connect Buildd to your Discord server to create tasks with a slash command and
+receive task-completion notifications.
 
 ## Setup
 
@@ -39,16 +40,35 @@ curl -X POST https://discord.com/api/v10/applications/{app-id}/commands \
 
 ### 3. Connect in Buildd
 
-Navigate to **Settings** in the Buildd dashboard. Find the **Discord** section and configure:
+There is **no dashboard UI for this**. Configure it by patching the workspace:
+
+```bash
+curl -X PATCH https://buildd.dev/api/workspaces/{workspace-id} \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "discordConfig": {
+      "guildId": "<your-discord-server-id>",
+      "channelId": "<default-notification-channel-id>",
+      "botToken": "<your-bot-token>",
+      "enabled": true
+    }
+  }'
+```
 
 | Field | Description |
 |-------|-------------|
-| Guild ID | Your Discord server ID |
-| Channel ID | Default channel for notifications |
-| Bot Token | Your bot's token (stored securely) |
-| Enabled | Toggle the integration on/off |
+| `guildId` | Your Discord server ID — how an incoming command finds this workspace |
+| `channelId` | Default channel for notifications |
+| `botToken` | Your bot's token |
+| `enabled` | Whether the integration is active |
 
-The bot token field includes a show/hide toggle for security.
+<Callout type="warn">
+`botToken` is stored on the workspace record, **not** in the encrypted secrets
+store that holds agent credentials. Anyone who can read the workspace through
+the API can read it back. Scope the bot's Discord permissions to the minimum it
+needs, and rotate it if workspace access changes.
+</Callout>
 
 ## Usage
 
@@ -70,7 +90,17 @@ The task is created in **planning mode** in the workspace linked to your Discord
 
 ### Plan Approval
 
-When a planning task completes with a proposed plan, Discord embeds include an **Approve** button. Clicking it approves the plan directly from Discord — the task transitions to execution mode and child tasks are created.
+Approve a plan in the dashboard or via
+`POST /api/tasks/{task-id}/approve-plan`, which reads the proposed plan and
+creates the child tasks.
+
+<Callout type="warn">
+Buildd's Discord notifications carry no buttons. The interaction endpoint does
+accept an `approve_plan` callback, but nothing buildd sends to Discord includes
+the component that would produce one, so there is no in-Discord approval flow to
+use. That callback also only switches the task to execution mode — it does not
+create child tasks the way the API route does.
+</Callout>
 
 ## Security
 

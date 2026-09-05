@@ -27,16 +27,36 @@ In your Slack app settings, add a slash command:
 
 ### 3. Connect in Buildd
 
-Navigate to **Settings** in the Buildd dashboard. Find the **Slack Integration** section and configure:
+There is **no dashboard UI for this**. Configure it through the workspace
+integration endpoint, which is **session-authenticated only** — an API key will
+not work:
+
+```bash
+curl -X PATCH https://buildd.dev/api/workspaces/{workspace-id}/integrations/slack \
+  -H "Content-Type: application/json" \
+  -d '{
+    "teamId": "<your-slack-team-id>",
+    "channelId": "<default-notification-channel-id>",
+    "botToken": "xoxb-...",
+    "enabled": true
+  }'
+```
 
 | Field | Description |
 |-------|-------------|
-| Team ID | Your Slack workspace/team ID |
-| Channel ID | Default channel for notifications |
-| Bot Token | Bot user OAuth token (`xoxb-...`) |
-| Enabled | Toggle the integration on/off |
+| `teamId` | Your Slack workspace/team ID — how an incoming command finds this workspace |
+| `channelId` | Where notifications are posted. Unrelated to where `/buildd` was typed |
+| `botToken` | Bot user OAuth token (`xoxb-...`) |
+| `enabled` | Whether the integration is active |
 
-Click **Save** to persist the configuration.
+`GET` on the same endpoint returns the config with `botToken` replaced by a
+`hasBotToken` boolean.
+
+<Callout type="warn">
+Notifications no-op silently unless **all three** of `enabled`, `botToken` and
+`channelId` are set. A half-configured integration looks identical to a working
+one — nothing warns you.
+</Callout>
 
 ## Usage
 
@@ -52,20 +72,36 @@ This creates a **planning-mode** task in the workspace linked to your Slack team
 
 You'll receive an ephemeral confirmation message with the task details.
 
-### Thread Context
+### Adding Context After Creation
 
-When messages are posted in a thread that originated from a `/buildd` command, Buildd captures them as additional context on the task. This lets your team add clarifications or requirements after the initial task creation.
+Add clarifications through the dashboard or by patching the task — not in Slack.
+
+<Callout type="warn">
+Thread replies are **not** captured. The endpoint can match a threaded message
+back to a task by a thread timestamp stored in task context, but the `/buildd`
+handler never stores one, so no Slack-created task can be matched. Replying in
+the thread does nothing.
+</Callout>
 
 ## Security
 
 Buildd verifies every incoming request using Slack's signing secret:
 
-- Validates the `x-slack-signature` header using HMAC-SHA256
-- Checks the timestamp is within 5 minutes to prevent replay attacks
+- Validates the `x-slack-signature` header using HMAC-SHA256 over
+  `v0:{timestamp}:{body}`
+- Requires `x-slack-request-timestamp` and rejects anything older than 5 minutes,
+  to prevent replay
 - Rejects requests that fail verification with `401 Unauthorized`
 
-Set the `SLACK_SIGNING_SECRET` environment variable to your Slack app's signing secret.
+Set the `SLACK_SIGNING_SECRET` environment variable to your Slack app's signing
+secret. Slack's initial `url_verification` challenge is answered before the
+signature gate, so it succeeds during setup.
 
 ## Notifications
 
-When tasks complete or need attention, Buildd can send notifications back to Slack using the configured bot token. Notifications are fire-and-forget — failures don't block task execution.
+Buildd posts back to `channelId` when a worker reaches `completed` or `failed`.
+Routine transitions are suppressed — a healthy heartbeat, an automatic retry, and
+a budget-reset resume do not notify.
+
+Notifications are fire-and-forget: a Slack API failure is logged and never blocks
+task execution.
