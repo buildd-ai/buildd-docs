@@ -12,7 +12,7 @@ Complete guide for self-hosting Buildd on your own infrastructure.
 Buildd consists of:
 - **Web server** (Next.js) - Dashboard, API, and authentication
 - **Database** (PostgreSQL) - Neon or any Postgres instance
-- **Cron trigger** (External) - Calls `/api/cron/schedules` every minute
+- **Cron trigger** (External) - Calls `/api/cron/schedules` hourly, on the hour
 - **Workers** (External) - Run on laptops, VMs, or CI runners
 
 ## Prerequisites
@@ -148,12 +148,20 @@ bun run db:migrate
 
 If you don't want to manage cron yourself:
 
+<Callout type="info">
+Hourly is deliberate, not a minimum viable setting. The tick only needs to be as
+fine as the finest schedule you actually run, and a finer tick wakes the database
+on every call for nothing. If you add a schedule finer than hourly, make the tick
+at least that fine or it will fire late — see
+[Task Schedules](/docs/features/schedules).
+</Callout>
+
 ### Option 1: cron-job.org (Free)
 
 1. Sign up at [cron-job.org](https://cron-job.org)
 2. Create new job:
    - **URL**: `https://your-domain.com/api/cron/schedules`
-   - **Interval**: Every minute (`* * * * *`)
+   - **Interval**: Hourly, on the hour (`0 * * * *`)
    - **HTTP Method**: GET
    - **Headers**: `Authorization: Bearer YOUR_CRON_SECRET`
 
@@ -165,7 +173,7 @@ crontab -e
 
 Add entry:
 ```bash
-* * * * * curl -s -H "Authorization: Bearer YOUR_CRON_SECRET" http://localhost:3000/api/cron/schedules
+0 * * * * curl -s -H "Authorization: Bearer YOUR_CRON_SECRET" http://localhost:3000/api/cron/schedules
 ```
 
 ## Environment Variables Reference

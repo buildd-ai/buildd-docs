@@ -13,8 +13,6 @@
     "worker-instructions",
     "teams",
     "github",
-    "slack",
-    "discord",
     "workspace-config",
     "device-auth",
     "attachments"

@@ -63,13 +63,29 @@ The `bypassPermissions` flag allows agents to skip interactive permission prompt
 
 - File edits are auto-approved
 - Bash commands run without confirmation
-- Dangerous commands (rm -rf /, sudo, etc.) are still blocked regardless of this setting
 
 This is useful for fully autonomous execution in CI or trusted environments.
 
+<Callout type="warn">
+**The workspace value only applies once `configStatus` is `admin_confirmed`.**
+On an `unconfigured` workspace the flag is ignored and the runner's own local
+setting decides — so setting it to `false` here does **not** guarantee bypass is
+off. Save the config once to make the workspace value authoritative.
+</Callout>
+
+<Callout type="warn">
+Dangerous commands (`rm -rf /`, `sudo`) are blocked by a pre-tool hook that
+exists on the **Claude backend only** — Codex has no equivalent hook and is
+governed by its sandbox mode instead. If the workspace, mission, role or task
+routes work to Codex, do not rely on that blocklist. It is also narrow by
+design: it matches `rm -rf /` and `rm -rf ~`, not `rm -rf .` or `rm -rf ../..`.
+</Callout>
+
 ## Configuration Object
 
-The full `WorkspaceGitConfig` shape:
+The commonly-used fields of `WorkspaceGitConfig`. This is not the whole type —
+it also carries backend selection, budget caps, sandbox and network policy,
+auto-merge rules, thinking and effort settings, and more:
 
 ```typescript
 interface WorkspaceGitConfig {
@@ -103,5 +119,35 @@ Workspaces track a `configStatus` field:
 
 | Status | Meaning |
 |--------|---------|
-| `unconfigured` | Default — no git config has been set |
-| `admin_confirmed` | An admin has reviewed and confirmed the configuration |
+| `unconfigured` | Default — no git config has been saved |
+| `admin_confirmed` | A workspace admin has saved the configuration |
+
+Saving the config sets `admin_confirmed`, and that write requires workspace
+**admin** or **owner** — a plain member gets `403`. This matters because
+`admin_confirmed` is what makes the workspace's `bypassPermissions` value take
+effect at all.
+
+## Writing Config: Two Endpoints, Two Behaviours
+
+<Callout type="warn">
+`POST /api/workspaces/{id}/config` is a **full-object replace**, not a patch. It
+rebuilds the git config from the request body and applies its own defaults to
+anything absent — so posting a single field resets `defaultBranch` to `main`,
+`branchingStrategy` to `feature`, `requiresPR` and `bypassPermissions` to
+`false`, and **drops every field it does not know about**. That includes backend
+selection, budget caps, sandbox policy, auto-merge rules and the rest.
+</Callout>
+
+To change one setting without disturbing the others, use
+`PATCH /api/workspaces/{id}` with a `gitConfig` object, which shallow-merges into
+the existing config:
+
+```bash
+curl -X PATCH https://buildd.dev/api/workspaces/{workspace-id} \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "gitConfig": { "requiresPR": true } }'
+```
+
+The dashboard form uses the `POST` route, which is correct there because the form
+submits every field it manages.

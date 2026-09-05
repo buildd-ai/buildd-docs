@@ -9,28 +9,35 @@ Create recurring tasks that run on a schedule using cron expressions.
 
 ## Overview
 
-Task schedules allow you to automate recurring work without manually creating tasks. Common use cases:
+Task schedules automate recurring work without manually creating tasks. Common
+uses:
 
-- **Daily reports** - Generate metrics every morning
-- **Periodic maintenance** - Run cleanup tasks weekly
-- **Monitoring checks** - Test APIs every hour
-- **Data syncs** - Pull external data on a schedule
+- **Daily reports** — generate metrics every morning
+- **Periodic maintenance** — run cleanup weekly
+- **Monitoring checks** — test an endpoint hourly
+- **Data syncs** — pull external data on a schedule
+
+<Callout type="warn">
+**The tick that evaluates schedules runs hourly, on the hour.** A schedule
+finer than hourly does not fire more often — it fires at most once an hour, with
+no error anywhere to tell you. Hourly is the floor for any cadence you write.
+</Callout>
 
 ## Creating a Schedule
 
 ### Via Dashboard
 
 1. Navigate to your workspace
-2. Click **"New Task"** button
-3. Toggle **"Recurring"** at the top
-4. Enter:
-   - **Schedule name** - Descriptive name (e.g., "Daily metrics report")
-   - **Cron expression** - When to run (e.g., `0 9 * * *` for 9am daily)
-   - **Timezone** - Your timezone (defaults to UTC)
-   - **Task template** - The task details (title, description, etc.)
-5. Click **"Create Schedule"**
+2. Click **New Task**
+3. Choose **Recurring** in the segmented control at the top
+4. Enter a schedule name, a cron expression, a timezone (defaults to UTC), and
+   the task template the schedule will stamp out
+5. Click **Create Schedule**
 
 ### Via API
+
+Creating, editing or deleting a schedule requires an **admin-level** API key. A
+worker-level key gets `401`.
 
 ```bash
 curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/schedules \
@@ -42,15 +49,19 @@ curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/schedules \
     "timezone": "America/Los_Angeles",
     "taskTemplate": {
       "title": "Generate metrics report",
-      "description": "Pull metrics from DB and post to Slack",
+      "description": "Pull metrics and post a summary",
       "priority": 5
     }
   }'
 ```
 
+Validate an expression before saving it with
+`GET /api/workspaces/{workspace-id}/schedules/validate?cron=0+9+*+*+*&timezone=UTC`,
+which returns `{ valid, description, nextRuns }`.
+
 ## Cron Expression Syntax
 
-Buildd uses standard cron syntax: `minute hour day month weekday`
+`minute hour day month weekday`
 
 | Field | Values | Special |
 |-------|--------|---------|
@@ -60,16 +71,17 @@ Buildd uses standard cron syntax: `minute hour day month weekday`
 | Month | 1-12 | `*` (every), `1-6` (Jan-Jun) |
 | Weekday | 0-7 | `*` (every), `1-5` (Mon-Fri), 0=7=Sun |
 
+Expressions are parsed by [croner](https://github.com/hexagon/croner), which
+also accepts a six-field form with leading seconds and aliases like `@daily`.
+Those parse, but the hourly tick still bounds how often anything fires.
+
 ### Common Examples
 
 ```bash
-# Every minute
-* * * * *
-
-# Every hour at :00
+# Every hour at :00 — the finest cadence that behaves as written
 0 * * * *
 
-# Every day at 9am UTC
+# Every day at 9am in the schedule's timezone
 0 9 * * *
 
 # Every Monday at 8am
@@ -78,11 +90,78 @@ Buildd uses standard cron syntax: `minute hour day month weekday`
 # Every weekday (Mon-Fri) at 6pm
 0 18 * * 1-5
 
-# Every 15 minutes
-*/15 * * * *
-
 # First day of every month at midnight
 0 0 1 * *
 ```
 
-For more information and troubleshooting, see the [deployment guide](/docs/deployment/self-hosting#alternative-cron-trigger-services).
+## Why a Schedule Might Not Fire
+
+A due schedule can be skipped without failing. These are the reasons, and each
+one writes `lastDeferralReason` on the schedule row so you can tell which
+applied.
+
+| Guard | Default | Behaviour |
+|---|---|---|
+| `maxConcurrentFromSchedule` | **1** | Counts tasks still active from this schedule and skips the run if the cap is reached. A daily schedule whose task takes longer than a day will silently skip runs. |
+| `pauseAfterFailures` | **5** | After this many consecutive failures the schedule sets itself `enabled: false`. It will not resume on its own. |
+| Seat limit | — | If the owning account is at its concurrent-session or worker limit, the run is deferred and a `schedule:deferred` event fires with `reason: 'seats_full'`. |
+| Mission cost budget | — | If the schedule's mission has spent its `costBudgetUsd`, the run is deferred with `budget_exhausted` until the budget is raised. |
+| Mission not active | — | If the linked mission is anything other than `active`, the schedule is **disabled**, not deferred. |
+| `orchestrationMode: 'manual'` | — | The schedule stays dormant until the mission is armed. |
+
+## One-Off Schedules
+
+Set `oneShot: true` and the schedule fires once, then sets itself
+`enabled: false` with no next run. The dashboard exposes this as a date and time
+picker rather than a cron field.
+
+## Cadence Selects the Model
+
+A schedule's cron interval infers the task's `kind` and `complexity`, and those
+feed the claim-time model router — so **cadence indirectly chooses which model
+runs the work**. A frequent schedule is classified as cheap observation work.
+
+Set `kind` and `complexity` explicitly on the task template to override the
+inference; an explicit value always wins over the cadence-derived one.
+
+## Triggers
+
+A schedule can be gated on an external value changing instead of firing every
+tick. Set `taskTemplate.trigger`:
+
+```json
+{
+  "trigger": {
+    "type": "rss",
+    "url": "https://example.com/feed.xml"
+  }
+}
+```
+
+`type` is `rss` or `http-json`; `http-json` also takes a `path` to select a
+value out of the response, and both accept `headers`. On each tick the value is
+fetched and compared to the last one seen — a task is created **only when it
+changed**, and an unchanged value is recorded as a check without a run.
+
+Inside the task template, `{{triggerValue}}` is interpolated into the title and
+description, and the task's context carries `triggerValue`,
+`previousTriggerValue` and `triggerMetadata`.
+
+Triggers are configured through the API or MCP only; the dashboard schedule form
+has no trigger fields.
+
+## Managing Schedules
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/workspaces/{id}/schedules` | List |
+| `GET/PATCH/DELETE /api/workspaces/{id}/schedules/{scheduleId}` | Read, edit, remove |
+| `GET /api/workspaces/{id}/schedules/validate?cron=&timezone=` | Validate an expression |
+| `POST/PATCH/DELETE .../schedules/{scheduleId}/suggestion` | Propose a change for approval |
+
+The suggestion endpoints let an agent propose a cron or enabled change into
+`pendingSuggestion` without applying it. Any principal with workspace access can
+propose; only a signed-in user or an admin key can approve.
+
+For self-hosted cron trigger setup, see the
+[deployment guide](/docs/deployment/self-hosting#alternative-cron-trigger-services).

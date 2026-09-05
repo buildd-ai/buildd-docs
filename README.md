@@ -20,10 +20,11 @@ Visit `http://localhost:3000/docs`
 
 - `content/docs/` - All documentation content in MDX format
   - `index.mdx` - Introduction page
-  - `getting-started/` - Setup and installation guides
-  - `features/` - Skills, schedules, and feature documentation
-  - `concepts/` - Architecture and access control
-  - `deployment/` - Self-hosting and deployment guides
+  - `getting-started/` - Running a worker, Codex backend
+  - `features/` - Missions, skills, schedules, memory, integrations
+  - `integrations/` - MCP server, GitHub Actions
+  - `concepts/` - Access model and secrets
+  - `deployment/` - Self-hosting
 
 ## Adding Documentation
 
@@ -37,8 +38,27 @@ Visit `http://localhost:3000/docs`
 
    # Page Content
    ```
-3. Update the relevant `meta.json` file to add the page to navigation
+3. **Update the directory's `meta.json` to list the page.** Fumadocs silently
+   drops a `pages` entry that names a missing file, and a page absent from
+   `pages` builds fine but never appears in the sidebar — neither shows up as a
+   build error, so both are easy to miss.
 4. Run `pnpm dev` to see your changes
+5. Run `pnpm types:check` before opening a PR
+
+### Writing conventions
+
+Worth matching, since the existing pages are consistent about it:
+
+- Two frontmatter keys only, `title` and `description`. Anything else is
+  stripped by the schema without complaint.
+- `<Callout type="warn">` for traps, `type="info"` for context. These are the
+  only MDX components in use — `Tabs`, `Steps` and `Cards` would each need an
+  explicit import.
+- Document what does **not** happen, not just what does. Silent no-ops and
+  fields that are ignored are the things readers actually get stuck on.
+- Verify a claim against the code in `buildd-ai/buildd` before writing it. Pages
+  here have previously described a security check that had been deleted and a
+  settings UI that had been removed.
 
 ## Deployment
 

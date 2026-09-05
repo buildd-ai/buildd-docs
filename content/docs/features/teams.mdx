@@ -41,7 +41,7 @@ Invitation statuses: `pending`, `accepted`, `expired`.
 
 ```
 teams
-  id, name, slug, plan (free|pro|team)
+  id, name, slug, timezone
 
 team_members
   teamId, userId, role (owner|admin|member)
@@ -51,13 +51,3 @@ team_invitations
 ```
 
 All workspaces and accounts reference a `teamId` foreign key, ensuring resources are always team-scoped.
-
-## Plans
-
-Teams have a plan tier that determines limits:
-
-| Plan | Description |
-|------|-------------|
-| `free` | Default tier for new teams |
-| `pro` | Expanded limits |
-| `team` | Full team features |
