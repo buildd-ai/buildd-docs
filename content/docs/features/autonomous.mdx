@@ -5,13 +5,65 @@ description: Auto-merge, requiresReview opt-in, mission dormancy, and progress t
 
 # Autonomous Workflow
 
-Buildd is autonomous by default. Agent PRs merge automatically on green CI, missions self-complete when their work is done, and progress tracking excludes housekeeping tasks so the number you see reflects real work. You opt out of automation selectively — per task or per mission — rather than opting in.
+Buildd is autonomous by default. Agent PRs merge automatically once green CI **and** a set of safety rails all pass, missions self-complete when their work is done, and progress tracking excludes housekeeping tasks so the number you see reflects real work. You opt out of automation selectively — per task or per mission — rather than opting in.
 
 ## Auto-Merge on Green CI
 
-When an agent creates a PR, Buildd automatically merges it once all CI checks pass (type check, build, tests). After merge, a release is triggered automatically.
+When an agent creates a PR, Buildd evaluates it for auto-merge once CI reports back.
 
-This is on by default for every workspace.
+<Callout type="warn">
+  **Green CI is necessary, not sufficient.** Passing CI only gets a PR to the
+  safety evaluation; six further rails can each block the merge. A PR with green
+  checks that stays open is the normal outcome when one of them trips — check the
+  mission feed for an "Auto-merge blocked — review needed" note, which carries the
+  specific reason.
+</Callout>
+
+This is on by default for every workspace. When a PR does merge, it merges as a
+**squash**, and a release is triggered automatically.
+
+### What must pass before a merge
+
+First the merge policy is resolved, with task settings overriding mission
+settings overriding the workspace default. Only the `auto-threshold` tier is
+eligible to merge at all — `human` holds the PR for you, and `agent-review`
+defers to the reviewer agent, which triggers the merge itself on approval.
+
+An eligible PR then has to clear every one of these:
+
+| Rail | Blocks when |
+|------|-------------|
+| **CI completeness** | Any check run is still `queued` or `in_progress`, or any concluded in `failure`. This rail **fails closed**: if the check-runs lookup itself errors, the merge is refused rather than allowed through unverified. |
+| **Protected paths** | Any changed file starts with one of the policy's deny paths. Migration and schema paths are the exception — they are routed to the migration classifier below instead of being blocked outright. |
+| **Migration classifier** | Runs **unconditionally** whenever the PR touches a generated migration or the schema file, whether or not those paths are in the deny list. Details below. |
+| **Diff size** | Non-generated source changes (additions + deletions) exceed the policy's line cap, which defaults to **800**. Drizzle snapshot metadata and lockfiles are excluded from the count. |
+| **Merge conflicts** | GitHub reports the PR as conflicting with its base branch. Rather than asking you, Buildd dispatches a same-branch conflict-retry task (on unless you disable auto-resolve for the workspace); it escalates to you only after the retry budget is exhausted. |
+| **Branch protection** | GitHub reports the PR as blocked — an unsatisfied branch-protection rule or a required review. |
+
+A PR file listing that cannot be fetched, or that comes back malformed, also blocks.
+
+### The migration classifier
+
+Because a bad migration is not something CI reliably catches, any PR touching
+generated SQL migrations or the schema file is classified by operation class:
+
+- **EXPAND** — purely additive and reversible. Passes.
+- **CONTRACT** — destructive or irreversible. Blocked for human review.
+
+Classified as CONTRACT: dropping a table or column; renaming a column or table;
+changing a column's type; adding a `NOT NULL` constraint to an existing column;
+adding a `NOT NULL` column with no default; and data migrations
+(`UPDATE`/`DELETE`/`INSERT`) inside a migration.
+
+The classifier also blocks on structural problems rather than statement content:
+changing the schema file without generating a migration, editing or deleting a
+migration that already exists, a migration number that collides with one in
+another open PR, and mixing EXPAND and CONTRACT migrations in a single PR (ship
+the additive change first, then the destructive one once nothing reads the old
+shape).
+
+It is deliberately conservative: **any statement it cannot parse is treated as
+CONTRACT**, so an unrecognised migration is held rather than merged.
 
 ### Disabling auto-merge
 
@@ -132,7 +184,7 @@ Without this distinction, a single failed heartbeat cycle would drag a complete 
 
 | Feature | Default | Override |
 |---------|---------|----------|
-| Auto-merge agent PRs | On | Clear **Auto-merge on green CI** in the workspace Git config |
+| Auto-merge agent PRs (green CI **plus** safety rails) | On | Clear **Auto-merge on green CI** in the workspace Git config |
 | Release after merge | On | Workspace release config |
 | requiresReview (task) | Off | `requiresReview: true` on `POST /api/tasks` — create-time, REST only |
 | requiresReview (mission) | Off | `requiresReview: true` on `POST /api/missions`; afterwards, `mergePolicy: { tier: "human" }` on `PATCH /api/missions/{id}` |
