@@ -8,6 +8,7 @@
     "planning-mode",
     "dependencies",
     "missions",
+    "mission-branches",
     "heartbeat",
     "autonomous",
     "worker-instructions",
