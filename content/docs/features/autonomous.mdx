@@ -1,6 +1,6 @@
 ---
 title: Autonomous Workflow
-description: Auto-merge, requiresReview opt-in, mission dormancy, and progress tracking
+description: Auto-merge, what a reviewer approval may merge, requiresReview opt-in, mission dormancy, and progress tracking
 ---
 
 # Autonomous Workflow
@@ -28,6 +28,10 @@ First the merge policy is resolved, with task settings overriding mission
 settings overriding the workspace default. Only the `auto-threshold` tier is
 eligible to merge at all — `human` holds the PR for you, and `agent-review`
 defers to the reviewer agent, which triggers the merge itself on approval.
+
+The same tier governs the `merge_pr` MCP action, so an agent cannot merge its own
+PR under `agent-review` or `human` — see
+[`merge_pr` is gated by the merge policy tier](/docs/integrations/mcp-server#merge_pr-is-gated-by-the-merge-policy-tier).
 
 An eligible PR then has to clear every one of these:
 
@@ -70,6 +74,51 @@ CONTRACT**, so an unrecognised migration is held rather than merged.
 To require human review of every agent PR in a workspace, clear **Auto-merge on green CI** under the workspace's **Git** configuration.
 
 This applies workspace-wide. To hold individual PRs instead, use `requiresReview` on the task (see below).
+
+## What a Reviewer Approval May Merge
+
+Under `agent-review` the reviewer agent's `approve` can merge the PR — but what it
+may merge **into** is bounded by the branch the PR targets, not by the verdict.
+
+| PR base | On `approve` |
+|---------|-------------|
+| A mission integration branch (the mission has `integrationBranchEnabled`) | **Merges.** That branch reaches your trunk through one mission PR, which is your gate, so an approved task PR lands somewhere still under review. |
+| Trunk — `dev`, your workspace target/default branch, or `main` | **Escalates to you.** The quarantine that justifies an unattended merge is not there. |
+
+The merge additionally requires that your build/test workflow **reported success**
+for the PR's head commit. An absent check run is not a passing one: if the workflow
+never ran for that ref, the approval escalates instead of merging.
+
+<Callout type="warn">
+  Check that your CI actually runs on the branch your task PRs target. A
+  `pull_request` workflow with a `branches:` allowlist does not run for a base
+  outside that list, and a PR with **zero** check runs looks identical to a green
+  one to anything that only watches for failures.
+</Callout>
+
+Escalation triggers — schema migrations, deny-path files, risk classes your policy
+reserves for humans — are enforced from the PR's file list on the server, not from
+anything the reviewer reports. They are re-checked when the verdict lands, so a file
+added while the PR was being revised is still caught.
+
+### Giving the Reviewer the Diff
+
+By default the reviewer sees the PR's changed **filenames**, not its contents. Set
+`reviewerPatchEvidence` in the workspace's `policyConfig` to pre-inject the patch
+itself:
+
+```bash
+curl -X PATCH https://buildd.dev/api/workspaces/{id} \
+  -H "Authorization: Bearer $BUILDD_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "gitConfig": { "policyConfig": { "reviewerPatchEvidence": true } } }'
+```
+
+The patch is rendered with a line number on **added lines only**, so a finding that
+cites `path:line` is citing a line the PR introduced. Files that do not fit the token
+budget are listed by name under an explicit "not reviewed" heading rather than
+silently dropped. Off by default, since it changes what your reviewer's verdicts are
+based on.
 
 ## requiresReview Opt-In
 

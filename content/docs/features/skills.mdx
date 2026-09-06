@@ -254,8 +254,16 @@ Skills can be promoted to **roles** by setting `isRole: true`. A role is a skill
 | Field | Description |
 |-------|-------------|
 | `model` | Which model to use. Prefer a **tier** — `premium`, `standard` or `budget` — so dispatch follows your team's model registry. `inherit` follows the team default; an exact model ID pins it. |
-| `allowedTools` | Tool restrictions (empty = all tools). Options: `Read`, `Write`, `Edit`, `Bash`, `Grep`, `Glob`, `WebSearch`, `WebFetch`, `Agent`, `NotebookEdit` |
+| `allowedTools` | **Subagent tools only.** The tool set given to a skill subagent spawned from this row — it does **not** narrow the main agent working a task. Empty = the subagent default set (`Read`, `Grep`, `Glob`, `Bash`, `Edit`, `Write`). Options: `Read`, `Write`, `Edit`, `Bash`, `Grep`, `Glob`, `WebSearch`, `WebFetch`, `Agent`, `NotebookEdit` |
 | `canDelegateTo` | Slugs of other roles this agent can create tasks for |
+
+<Callout type="warn">
+  **`allowedTools` is not a security boundary.** It is applied when this role runs
+  as a *skill subagent* (see [Skills as Subagents](#skills-as-subagents)). The main
+  agent on a task gets its allowlist from skill scoping alone, so a role with no
+  skills attached runs with the SDK's default tools — shell and file writes
+  included — no matter what is set here. Do not rely on it to contain an agent.
+</Callout>
 | `connectorRefs` | IDs of team [connectors](#connectors--how-roles-get-mcp-servers) this role mounts. **This is how a role gets MCP servers.** |
 | `defaultBackend` | Default agent engine (`claude` or `codex`) for tasks routed to this role |
 | `color` | Hex color for the role's avatar in the dashboard |
