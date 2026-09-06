@@ -134,7 +134,7 @@ A `worker` token gets everything above, plus:
 | `complete_task` | `summary?`, `error?`, `structuredOutput?`, `workerId?` | Mark task done or failed. `structuredOutput` is how a planning task returns its plan |
 | `create_pr` | `title`, `head`, `body?`, `base?`, `draft?`, `prUrl?` | Create (or register) a GitHub PR on the worker |
 | `get_pr` | `prNumber?`, `workspaceId?` | Mergeable state, CI checks, reviews, diff stats, PR body |
-| `merge_pr` | `prNumber`, `mergeMethod?` | Merge via the workspace's GitHub App token |
+| `merge_pr` | `prNumber`, `mergeMethod?` | Merge via the workspace's GitHub App token — **gated by the merge policy tier**, see below |
 | `close_pr` | `prNumber` | Close a PR via the workspace's GitHub App token |
 | `update_task` | `taskId`, `title?`, `description?`, `priority?`, `project?`, `status?`, `backend?`, `maxLoops?` | Update task fields. **Only those fields** — see the warning below |
 | `upload_artifact` | `filename`, `mimeType`, `sizeBytes`, `title?`, `type?` | Get a signed upload URL for a file artifact |
@@ -248,6 +248,27 @@ buildd action=complete_task params={ workerId: "...", summary: "Added JWT auth m
 # Record a custom event
 buildd action=emit_event params={ workerId: "...", type: "deploy", label: "Deployed to staging" }
 ```
+
+#### `merge_pr` is gated by the merge policy tier
+
+`merge_pr` is not a way around the workspace's merge policy. The tier decides,
+because it already encodes who is allowed to end a PR:
+
+| Tier | `merge_pr` |
+|------|-----------|
+| `auto-threshold` | Permitted, **if** the same safety check auto-merge uses passes: CI green, no deny-path files, diff under the source-line cap, migration inspector satisfied. |
+| `agent-review` | **Refused (403).** The reviewer agent's verdict is the gate, and a self-merge routes around it. Green CI does not substitute for the verdict. Call `request_pr_review` and then `get_pr_review`; an `approve` merges the PR for you when policy permits. |
+| `human` | **Refused (403).** Report completion and let the owner merge from the dashboard. |
+
+A task carrying `requiresReview` is tier `human` for its own PR regardless of the
+workspace tier. A 403 carries the reason and the tier in its body — read it rather
+than retrying, since none of these refusals clear on a retry.
+
+<Callout type="info">
+  If the PR cannot be read to evaluate the policy, the merge is **refused** rather
+  than attempted. A merge with no policy evaluation is the thing this gate exists
+  to prevent, so an unreadable PR fails closed.
+</Callout>
 
 ### `recall` and `learn` — Team Knowledge
 
