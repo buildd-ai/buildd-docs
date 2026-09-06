@@ -1,0 +1,65 @@
+---
+title: Mission Branches
+description: How a mission's task PRs reach the trunk branch — mission-branch and direct strategies
+---
+
+# Mission Branches
+
+Every task in a mission still gets its own branch and its own pull request, no
+matter which strategy is active. What the strategy decides is **where that
+pull request merges to** — and, as a result, how the mission's work eventually
+lands in your trunk branch (usually `main`).
+
+There are two strategies: **mission-branch** and **direct**.
+
+## mission-branch (default)
+
+Buildd creates a branch for the mission — named after the mission — the first
+time the mission needs one. Each task's PR bases on that mission branch
+instead of trunk, and PRs accumulate there unattended as tasks complete. When
+the mission's work is done, the mission branch itself opens **one** pull
+request into the trunk branch.
+
+This has a few consequences worth stating plainly:
+
+- Your merge policy (required checks, reviews, auto-merge rules) applies
+  **once**, to the mission PR — not to every task PR underneath it.
+- The mission is one diff to review and one commit to revert, instead of many.
+- CI runs at **two** levels: once when each task PR merges into the mission
+  branch, and again when the mission PR merges into trunk. A mission under
+  this strategy costs more build minutes than the same work would under
+  `direct`.
+
+<Callout type="warn">
+On a long-running mission, the mission branch can drift from trunk while task
+PRs keep landing on it. Merge trunk back into the mission branch periodically
+— otherwise the final mission PR accumulates conflicts that get harder to
+resolve the longer the mission runs.
+</Callout>
+
+## direct
+
+Every task PR bases on the trunk branch directly and merges into it on its
+own, as soon as it's green. There is no intermediate branch.
+
+Under this strategy:
+
+- Your merge policy applies to **each task PR individually**.
+- A mission is a grouping over several independent merges, not a single unit
+  of change — there's no one commit that represents "the mission."
+- Reverting "the mission" means reverting each of its task PRs, one at a time.
+
+## Choosing a strategy
+
+| Use `mission-branch` when… | Use `direct` when… |
+|---|---|
+| The mission has multiple tasks and reviewing the whole change together is the point | You want each change in trunk as soon as it's green, without waiting on the rest of the mission |
+| A partly-landed mission would be confusing or unsafe in trunk | The mission is a single task — there's nothing to batch |
+| You want one diff to review and one commit to revert | The mission would run long enough that a shared branch would drift too far from trunk to merge cleanly |
+
+## Configuring
+
+A workspace-level setting picks the default strategy applied to new missions.
+Any individual mission can override that default and use the other strategy
+instead — set it when the mission is created, or change it before the mission
+starts producing task PRs.

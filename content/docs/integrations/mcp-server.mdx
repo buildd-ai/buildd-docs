@@ -232,6 +232,15 @@ An `admin` token gets everything above, plus:
   server. Anything else you put there is stored and ignored.
 </Callout>
 
+<Callout type="info">
+  `manage_missions` `create` (and `update`) accept a `branchStrategy` of
+  `mission-branch` or `direct`, overriding the workspace default for that one
+  mission. Under `mission-branch`, buildd creates the mission's shared branch
+  automatically — there's nothing to set up by hand. See [Mission
+  Branches](/docs/features/mission-branches) for how each strategy gets a
+  mission's work into your trunk branch.
+</Callout>
+
 #### Examples
 
 ```
