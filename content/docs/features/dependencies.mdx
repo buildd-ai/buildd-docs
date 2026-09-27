@@ -5,11 +5,11 @@ description: Define execution order between tasks using dependency chains
 
 # Task Dependencies
 
-Tasks can declare dependencies on other tasks, creating a directed acyclic graph (DAG) that controls execution order. A task with unresolved dependencies cannot be claimed by workers until all its dependencies are completed.
+Tasks can declare dependencies on other tasks, creating a directed acyclic graph (DAG) that controls execution order. A task with unresolved dependencies cannot be claimed by workers until every dependency **satisfies the gate** — which is not the same as every dependency reaching `completed`. A cancelled dependency satisfies the gate, and a completed one whose PR is still open does not. See [Blocking Behavior](#blocking-behavior) for the exact rule.
 
 ## How It Works
 
-Each task has an optional `dependsOn` field — an array of task IDs that must reach `completed` status before the task becomes claimable.
+Each task has an optional `dependsOn` field — an array of task IDs that must each satisfy the dependency gate before the task becomes claimable.
 
 ```bash
 # Create a task that depends on two others
@@ -49,11 +49,47 @@ Tasks with unresolved dependencies display a padlock icon in the sidebar task li
 
 ## Blocking Behavior
 
-When a worker calls `claim_task`, the system filters out any task whose `dependsOn` array contains IDs of tasks that are not yet `completed`. This means:
+When a worker calls `claim_task`, the system filters out any task that still has an
+unsatisfied dependency. A dependency is **satisfied** when both of these hold:
+
+1. Its status is `completed` **or** `cancelled`.
+2. It is **not** a `completed` task that still has an open, unmerged PR.
+
+Written as the gate evaluates it:
+
+```
+satisfied = status IN ('completed', 'cancelled')
+            AND NOT (status = 'completed' AND the dep has an open, unmerged PR)
+```
+
+Two consequences are easy to get wrong in opposite directions:
+
+- **`cancelled` satisfies the gate.** Cancelling a dependency is a deliberate "this
+  will never be delivered" signal, so its dependents proceed rather than waiting
+  forever. The open-PR guard in rule 2 does not apply to cancelled dependencies.
+- **`completed` is not always enough.** If the dependency's PR exists and has not
+  been merged, the dependent stays blocked even though the upstream task reads as
+  done. This stops a downstream task from building on work that has not landed yet.
+  The guard releases once the PR is merged — or once the PR is recorded as
+  **closed**, since abandoned work will never land and holding dependents behind it
+  would block them permanently.
+
+Every other status — including `failed`, `pending`, and `in_progress` — blocks.
+Note that `failed` blocks: a failed dependency does not resolve itself, so cancel it
+(or fix and complete it) to release its dependents.
+
+This means:
 
 - Blocked tasks remain in `pending` status but are invisible to the claim system
-- Once all dependencies complete, the task becomes available for the next claim
+- Once every dependency satisfies the gate, the task becomes available for the next claim
 - There is no automatic notification — workers discover newly unblocked tasks on their next claim attempt
+
+### Bypassing the gate
+
+The gate is skipped entirely when a task has no dependencies (`dependsOn` is unset or
+an empty array), or when the task has been force-started — starting a task with
+`forceOverride` sets a bypass flag on the task that makes the claim query ignore the
+dependency gate for that task.
 
 ## Circular Dependency Detection
 
