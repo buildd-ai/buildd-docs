@@ -12,57 +12,44 @@ Buildd calls models in two places. Each has its own credentials and its own bill
 | Where | The buildd web app | Your runners |
 | How long | Seconds | Minutes to hours |
 | What it is | One model call, or one streaming chat turn. No repo, no shell | A Claude Code or Codex session with a worktree, tools and commits |
-| Used for | Chat, goal-criteria grading, chat's per-turn routing | Every task: building, research, planning, PRs |
+| Used for | Interactive AI (chat), goal-criteria grading, task classification and category checks | Every task: building, research, planning, PRs |
 | Paid with | A provider **API key** (Anthropic, OpenAI, OpenRouter) | A **subscription** (Claude or ChatGPT/Codex) or an API key |
 | Billed | Per token | Per seat, or per token if the runner uses an API key |
 
 <Callout type="info">
   A subscription can't pay for server-side calls. Subscription login is tied to
   the runner that holds it, and a single server request has no seat to use. So
-  server-side features always need an API key, and a runner never uses those
-  keys.
+  server-side calls always need an API key, and a runner never uses those keys.
 </Callout>
 
 ## Server-side model calls
 
-These run inside buildd and return in seconds.
+These run inside buildd and return in seconds. None of them needs turning on.
 
-| Feature | Setting | With it off |
-|---|---|---|
-| Chat | On once a key resolves. An admin can turn it off | No chat. The mission form works as before |
-| Goal criteria grading | Off until an admin turns it on | An agent run on your runner grades written criteria instead, slower and on its seat |
-| Task category shadow check | Off until turned on | Nothing. It only logs whether a model agrees with the keyword rules |
-| Visual QA judgment, task classification, mission summaries | Listed in **Settings → AI features** | No buildd feature calls these yet. Turning them on spends nothing |
+| Kind | Features | When it runs | Control |
+|---|---|---|---|
+| Interactive AI | Chat, and the per-turn routing that picks each turn's tier | Whenever a key resolves | An admin kill switch in **AI → AI features**. Nothing to enable |
+| Decision calls | Task classification, task category check | Whenever a key resolves | None |
+| Server-side features | Goal-criteria grading (the only one listed today) | By billing model: server-side if a team key resolves, else on a runner | Per-feature override (Server-side / Runner) under **Advanced** in **AI → AI features** |
 
-Two rules apply to all of them:
+Things to know:
 
-- **Storing a key spends nothing.** Apart from chat, each feature is off until an
-  admin turns it on in **Settings → AI features**.
 - **Chat never falls back to a runner or a subscription.** With no key, the chat
-  box becomes the mission form and explains what's missing.
+  box stays the mission form and says what's missing.
+- **Grading always has somewhere to run.** Without a team key, or with an
+  override set to Runner, an agent run on your runner grades written criteria
+  instead, slower and on its seat.
 
-Providers per feature:
+Providers per call:
 
 | Path | Anthropic | OpenAI | OpenRouter |
 |---|---|---|---|
 | Chat | Yes | Yes | Yes |
-| Grading and other one-shot calls | Yes | No | Yes |
+| Grading | Yes | No | Yes |
+| Decision calls | No | No | Yes |
 
 A chat tier mapped to an Anthropic or OpenAI model still works with only an
 OpenRouter key. Buildd serves the same model through OpenRouter.
-
-### Chat budgets
-
-Chat is capped by default. There is no "no cap" setting.
-
-| Limit | Default | Where |
-|---|---|---|
-| Team daily chat budget | $20, reset at midnight in the team's timezone | **Settings → Budgets** |
-| Per-person daily share | Half the team budget | **Settings → Budgets** |
-| Turn rate | 30 turns per person per 10 minutes | Fixed |
-
-A team budget of `0` pauses chat. Chat spend is tracked apart from runner
-spend and never counts against an account's `maxCostPerDay`.
 
 ## Runner-side agent runs
 
@@ -90,26 +77,37 @@ plan's usage window. The cost buildd shows for seat runs is an estimate
 
 ## Keys: the team's or each person's
 
-Server-side keys are managed in **Settings → Model providers**. Connect
-OpenRouter with one click, or paste an Anthropic, OpenAI or OpenRouter key. Only
-the last four characters are shown after saving.
+Server-side keys live in **Connections → Model providers**. Connect OpenRouter
+with one click, or paste an Anthropic, OpenAI or OpenRouter key. Only the last
+four characters are shown after saving.
 
-An admin picks one policy for whose key a person's chat turns spend:
+An admin picks whose key pays. The choice covers **all** server-side AI, not
+just chat:
 
-| Policy | Who pays for chat | A person's own key |
+| Whose key | Chat | Team work with no person behind it (grading) |
 |---|---|---|
-| Team key (default) | The team key, for everyone | Ignored |
-| Team key, own key allowed | A person's own key if they added one, else the team key | Optional |
-| Everyone brings their own | Each person's own key | Required. No team key fallback |
+| **Team key** (default) | The team key. Personal keys ignored | The team key |
+| **Team key**, people may use their own | A person's own key if they added one, else the team key | The team key |
+| **Each person's own key** | That person's key. No team fallback | No key resolves, so it runs on a runner |
 
-Members add their own key under **Settings → Account**. A personal key only ever
-pays for its owner's turns.
+Members add their own key under **Account → Profile**. A personal key only ever
+pays for its owner's calls.
 
-<Callout type="info">
-  The policy only covers chat, because chat runs for a person. Grading and other
-  team work with no person behind it use the workspace key, then the team key,
-  whatever the policy says.
-</Callout>
+## Budgets
+
+**Team → Budgets** shows spend split into **Interactive** and **Agent runs**,
+today and this month. Admins see it per person. Agent runs count against the
+person who created the mission.
+
+| Cap | Default | Notes |
+|---|---|---|
+| Team daily interactive budget | $20/day | Resets at midnight in the team's timezone. `0` pauses chat. Never uncapped |
+| Per-person daily cap | $10/day (half the team budget) | Clamped to the team budget |
+| Turn rate | 30 turns per person per 10 minutes | Fixed |
+
+Under **Each person's own key** there is no team cap and no default per-person
+cap; an admin can still set one. Interactive spend never counts against an
+account's `maxCostPerDay`.
 
 ## Model tiers
 
@@ -123,9 +121,9 @@ admin decides which model backs it.
 | `standard` | Most engineering and research. The default |
 | `budget` | Fast, cheap calls: triage, classification |
 
-Admins map each tier to a provider and model in **Settings → Model tiers**
-(or the `manage_model_tiers` MCP action), for the whole team or one workspace.
-Buildd resolves a tier in this order:
+Admins map each tier to a provider and model in **AI → Model tiers** (or the
+`manage_model_tiers` MCP action), for the whole team or one workspace. Buildd
+resolves a tier in this order:
 
 1. The workspace's mapping
 2. The team's mapping
@@ -137,30 +135,49 @@ Things to know:
 - **Agent runs resolve at claim time.** Change a mapping and tasks already in the
   queue pick up the new model. Changes apply within about a minute.
 - **An explicit `model` wins.** A task with `model` set, or a role pinned to a
-  full model ID, skips tiers entirely.
+  full model ID, skips tiers and pools entirely.
 - **Chat picks a tier per turn.** A quick classifier sends simple turns to
-  `budget` and complex ones to `premium`. When it's unsure, or unavailable, the
-  turn uses `standard`. It never changes which model backs a tier.
+  `budget` and complex ones to `premium`, and falls back to `standard`. It never
+  changes which model backs a tier.
 
-<Callout type="info">
-  **Tier model pools** — several models behind one tier, with traffic split and
-  graded between them — are designed but not shipped. Today each tier maps to
-  one model.
-</Callout>
+### Tier pools
+
+A tier can be backed by a **pool** of models instead of one. **AI → Model tiers**
+shows two tables, **Agent runs** and **Chat and quick calls**, with each tier's
+models, traffic share, win rate, mistake mix and cost per 1k tokens.
+
+| | Today |
+|---|---|
+| Traffic | Split by hand: an admin sets each model's share, or pins the tier to its base model. Buildd does not shift traffic on its own |
+| Stickiness | A task keeps its model across retries, and a mission's tasks share one. A chat keeps its model while it stays on the same tier |
+| Feedback | Thumbs up or down on each assistant turn in chat. A thumbs-down asks for a reason |
+| Excluded | `premium-plus`, sensitive workspaces, tasks with an explicit `model` or a pinned role, and reviewer tasks |
+
+If a pool's model can't be served (the runner can't run it, or there's no key for
+its route), the base model runs instead.
+
+## Settings map
+
+| Group | Pages |
+|---|---|
+| Account | Profile: your sign-in, teams and personal key |
+| Team | Members, Budgets |
+| Connections | Runners, Model providers, GitHub and Vercel, Notifications, MCP connectors |
+| AI | AI features, Model tiers |
+| Workspaces | Workspaces |
 
 ## What to set up
 
-| You... | Runners | Server-side | Key policy |
+| You... | Runners (**Connections → Runners**) | Server-side (**Connections → Model providers**) | Whose key |
 |---|---|---|---|
-| **Pay per token** | Store an `anthropic_api_key` secret, or set `OPENAI_API_KEY` on the runner for Codex. Runners still run the agent | Add an OpenRouter, Anthropic or OpenAI key in **Model providers**. Turn on goal grading in **AI features** if you want grading in seconds | Team key |
-| **Have a Claude or ChatGPT subscription** | Add the Claude OAuth token or Codex `auth.json`. This is where the heavy work runs | Optional. Add an API key only if you want chat or fast grading. Leave grading off to keep it on your seat | Team key, or let people bring their own |
+| **Pay per token** | Store an `anthropic_api_key` secret, or set `OPENAI_API_KEY` on the runner for Codex. Runners still run the agent | Add an OpenRouter, Anthropic or OpenAI key. Chat and grading then run server-side | Team key |
+| **Have a Claude or ChatGPT subscription** | Add the Claude OAuth token or Codex `auth.json`. This is where the heavy work runs | Optional. Add a key only if you want chat. With a team key, grading moves server-side; override it to Runner under **Advanced** to keep it on your seat | Team key, or each person's own |
 | **Self-host** | Same as either row above | Either add keys in the app, or set `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` **and** `BUILDD_ALLOW_ENV_INFERENCE_KEYS=1` | Any |
 
 <Callout type="warn">
   In production, provider env vars are ignored unless
   `BUILDD_ALLOW_ENV_INFERENCE_KEYS=1` is set. Without it, a self-hosted deploy
   with only `ANTHROPIC_API_KEY` in its environment has no server-side key, and
-  chat stays off. Env keys are also a last resort: any
-  key stored in the app wins, and under the "everyone brings their own" policy
-  chat never reads them.
+  chat stays off. Env keys are also a last resort: any key stored in the app
+  wins.
 </Callout>
