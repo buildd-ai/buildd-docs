@@ -28,14 +28,18 @@ These run inside buildd and return in seconds. None of them needs turning on.
 
 | Kind | Features | When it runs | Control |
 |---|---|---|---|
-| Interactive AI | Chat, and the per-turn routing that picks each turn's tier | Whenever a key resolves | An admin kill switch in **AI → AI features**. Nothing to enable |
+| Interactive AI | Chat, and the per-turn routing that picks each turn's tier | Whenever a key resolves | None |
 | Decision calls | Task classification, task category check | Whenever a key resolves | None |
 | Server-side features | Goal-criteria grading (the only one listed today) | By billing model: server-side if a team key resolves, else on a runner | Per-feature override (Server-side / Runner) under **Advanced** in **AI → AI features** |
 
 Things to know:
 
 - **Chat never falls back to a runner or a subscription.** With no key, the chat
-  box stays the mission form and says what's missing.
+  box shows who can fix it: admins can add a key under **Connections → Model providers**,
+  or if the key policy is "Each person's own key", members can connect one under
+  **Account → Profile** or add OpenRouter.
+- **Chat writes starting recurring or unattended work always ask for approval.** This
+  includes scheduling tasks, arming a mission, or resuming work.
 - **Grading always has somewhere to run.** Without a team key, or with an
   override set to Runner, an agent run on your runner grades written criteria
   instead, slower and on its seat.
