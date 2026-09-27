@@ -28,9 +28,11 @@ Follow the prompted URL, sign in with the account that holds your ChatGPT plan, 
 
 ### 2. Paste into Settings
 
-1. Open **Buildd** → **Settings** → your workspace → **Codex** section
-2. Paste the `auth.json` contents into the text field
-3. Click **Connect**
+1. Open **Buildd** → **Settings** → **Connections** → **Runners**
+2. Find your runner and click **Add Credential**
+3. Select **Codex** from the provider dropdown
+4. Paste the `auth.json` contents into the text field
+5. Click **Connect**
 
 Buildd stores the tokens encrypted in its database. The status indicator changes to **Connected** immediately.
 
@@ -38,13 +40,13 @@ That's it. No `CODEX_HOME` to configure, no files to mount. Runners receive the 
 
 ## Token Refresh
 
-Buildd refreshes your Codex tokens automatically before they expire. The refresh runs server-side using a rotation guard that prevents concurrent refresh races. If a refresh fails, the status changes to **Expired** and a banner appears in the workspace settings — paste a fresh `auth.json` to reconnect.
+Buildd refreshes your Codex tokens automatically before they expire. The refresh runs server-side using a rotation guard that prevents concurrent refresh races. If a refresh fails, the status changes to **Expired** and a banner appears in the runner's credential panel — paste a fresh `auth.json` to reconnect.
 
-You can also trigger a manual refresh from the Codex section in Settings → **Refresh token**.
+You can also trigger a manual refresh by clicking **Refresh token** next to the Codex credential in Settings → Connections → Runners.
 
 ## Disconnecting
 
-To remove the credential, click **Disconnect** in Settings → Codex. This deletes the encrypted tokens from the database immediately. Any in-flight Codex tasks will complete using the tokens they received at claim time.
+To remove the credential, click **Disconnect** next to the Codex credential in Settings → Connections → Runners. This deletes the encrypted tokens from the database immediately. Any in-flight Codex tasks will complete using the tokens they received at claim time.
 
 ## Security
 
