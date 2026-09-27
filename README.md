@@ -23,7 +23,7 @@ Visit `http://localhost:3000/docs`
   - `getting-started/` - Running a worker, Codex backend
   - `features/` - Missions, skills, schedules, memory, integrations
   - `integrations/` - MCP server, GitHub Actions
-  - `concepts/` - Access model and secrets
+  - `concepts/` - How buildd runs AI, access model, secrets
   - `deployment/` - Self-hosting
 
 ## Adding Documentation
