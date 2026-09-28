@@ -123,6 +123,32 @@ A mission can be created now but held inert:
 buildd action=manage_missions params={ action: "arm", missionId: "<mission-id>" }
 ```
 
+## Executor: Runner or Local
+
+By default (`executor: "runner"`), a mission's tasks are picked up by whichever
+runner has a free slot. Set `executor: "local"` to run a mission's tasks
+yourself, from your own interactive session, instead — background runners skip
+them entirely:
+
+```
+buildd action=manage_missions params={
+  action: "update",
+  missionId: "<mission-id>",
+  executor: "local"
+}
+```
+
+With `executor: "local"`:
+
+- Runners never auto-claim the mission's tasks.
+- You claim each one explicitly and interactively — `claim_task { taskId: "<task-id>" }` from your own session — which gives you a normal tracked worker: the same PR link and cost accounting a runner-claimed task gets. Finish it the usual way, with `complete_task`.
+- The dashboard tags the mission `[LOCAL]`, and a task under it shows "Running in a local session" instead of offering to start it on a runner. "Force start" still hands that one task to a runner if you'd rather it ran there.
+
+`executor` is independent of `startMode`: `held` is a pause that blocks every
+claim, interactive sessions included, and wins over `executor` when both are
+set. Use `executor: "local"` for work you intend to drive yourself, and
+`startMode: "held"` for work nobody should touch yet.
+
 ## Goal Criteria
 
 `goalCriteria` are completion gates that **block** the mission from closing until
@@ -250,9 +276,9 @@ All actions belong to `manage_missions`, which is admin-level.
 | Action | Params | Description |
 |--------|--------|-------------|
 | `list` | `workspaceId?, status?` | List missions |
-| `create` | `title, description?, workspaceId?, initiativeId?, cronExpression?, priority?, skillSlugs?, model?` | Create a mission |
+| `create` | `title, description?, workspaceId?, initiativeId?, cronExpression?, priority?, skillSlugs?, model?, executor?` | Create a mission |
 | `get` | `missionId` | Get a mission with tasks and progress |
-| `update` | `missionId, title?, description?, status?, cronExpression?, priority?, skillSlugs?, model?` | Update a mission |
+| `update` | `missionId, title?, description?, status?, cronExpression?, priority?, skillSlugs?, model?, executor?` | Update a mission |
 | `delete` | `missionId` | Delete a mission (tasks preserved) |
 | `link_task` | `missionId, taskId` | Link a task to a mission |
 | `unlink_task` | `taskId` | Remove a task from its mission |

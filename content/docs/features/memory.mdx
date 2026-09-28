@@ -21,6 +21,16 @@ Memory is part of buildd itself. Memories live in buildd's own `memories` table 
 
 Teams are the isolation boundary: one team never sees another team's memories.
 
+<Callout type="info">
+Personal preferences you state in chat ("always round per line", "never force-push to dev") aren't team memory — they're a separate, always-loaded feature scoped to you alone. See [Standing Rules](/docs/features/chat#standing-rules).
+</Callout>
+
+## One Retrieval Path
+
+Four places used to show an agent memory — `recall`, the claim-time "prior work" block, the runner's `## Workspace Memory` block, and the `claim_task` reply — and each searched a different way, so the same task could see different memories depending on which door it came through.
+
+All four now read through the same retrieval path. Whichever surface a memory reaches an agent through, it was found the same way and respects the same project scope described above — a memory you've narrowed with `scope` stays narrowed everywhere, not just when you call `recall` directly.
+
 ## Memory Types
 
 Every memory has a type describing the kind of knowledge it captures. Picking the right one helps agents rank and filter what they retrieve.
@@ -153,6 +163,71 @@ Superseded entries drop out of default retrieval while remaining auditable. Pref
 **Do save:** gotchas that cost you time; architectural decisions and their rationale; patterns specific to this codebase; non-obvious behaviour you discovered; key file paths and what they're for.
 
 **Don't save:** obvious or well-documented behaviour; temporary workarounds; session-specific state such as the current task or in-progress work; anything that changes weekly.
+
+## Candidate Memories and Promotion
+
+By default, every `learn` call lands as a full team memory immediately — one agent, on one task, writes something every other agent then trusts at full authority. Turning on the workspace flag `gitConfig.memoryCandidateWrites` (default **off**) changes that: new writes land as **candidates** first, and have to earn their way to **active** before anything is pushed to another agent.
+
+```
+buildd action=manage_workspaces params={
+  action: "update",
+  workspaceId: "<workspace-id>",
+  gitConfig: { memoryCandidateWrites: true }
+}
+```
+
+With the flag on:
+
+- **A candidate is never pushed.** It doesn't appear in the claim-time block, the runner's memory block, or the `claim_task` reply. `recall` only returns it if you pass `includeCandidates: true`, or fetch it directly by `id`.
+- **More things write candidates than just `learn`.** A failed task's error and last summary, and a PR review that requested changes, can also produce a candidate — evidence from episodes that didn't go through `learn` at all.
+- **Promotion to active is automatic**, decided case by case rather than on a timer: a verified source (its task's PR merged and stayed merged), or a second, independent episode agreeing with it, is enough. Nothing sourced from outside your team — error text, review comments, anything not written by your own agents — ever auto-promotes.
+- **An unused candidate expires** after 30 days with no one pulling it and no task acting on it. One a person or agent *did* pull is never expired automatically — it waits for a human or for promotion instead.
+- **Nothing is hidden.** A candidate that would supersede an active memory waits until it's promoted; the active memory keeps serving until then.
+
+Off (the default), writes behave exactly as they do today: every `learn` call is active immediately, and there is nothing to promote.
+
+## Index Injection at Claim Time
+
+By default, the memories a claimed task sees are rendered as full bodies wherever they're pushed. Turning on `gitConfig.memoryIndexInjection` (default **off**) changes the claim-time surfaces — the "prior work" block, the runner's memory block, and the `claim_task` reply — to an **index** instead: one line per memory, capped to a token budget, with the body left for the agent to pull if it needs it.
+
+```
+buildd action=manage_workspaces params={
+  action: "update",
+  workspaceId: "<workspace-id>",
+  gitConfig: { memoryIndexInjection: true }
+}
+```
+
+Each line reads `<type> m:<8-char id> <title> (<why it matched>)` — for example:
+
+```
+gotcha m:1a2b3c4d neon-http driver doesn't support interactive transactions (path)
+```
+
+The agent reads the title and, if it looks relevant, fetches the body with `recall id="1a2b3c4d"`. The whole index is capped at roughly 800 estimated tokens by default (override per workspace with `gitConfig.memoryIndexTokenBudget`), so a long list of near-relevant memories no longer crowds out everything else in the prompt.
+
+Off (the default), every surface renders full memory text exactly as described above.
+
+## Jev Decisions
+
+Several small judgment calls inside memory — is this worth keeping, which type fits, does a new write conflict with an existing one — are made by **Jev**, a fast, cheap decision-maker that answers a typed question (a choice, a score, or yes/no) rather than writing prose. Every call is confidence-gated and **fails open**: if Jev is slow, unsure, or errors, memory falls back to the same fixed rule it used before Jev existed, so a Jev outage never blocks a read or a write.
+
+| Decision | What it decides | Status |
+|---|---|---|
+| Worth keeping | Durable lesson, or just a task summary? | Live |
+| Type | Which of the five types fits a write | Live |
+| Update | ADD / UPDATE / SUPERSEDE / NOOP against similar existing memories | Live |
+| Use label | Did the agent actually act on a memory it saw? | Live (measurement only) |
+| Chat tier | Is a chat message a standing rule, general knowledge, or neither? | Live |
+| Directive scope | Should a new standing rule default to everywhere or just this workspace? | Live |
+| Relevance gate | Should this specific match actually be shown for this task? | Shadow — logged, not yet acted on |
+| Promote | Should this candidate become an active memory? | Shadow — a deterministic rule decides meanwhile |
+
+"Shadow" means Jev's answer is recorded for comparison against the current rule, but the rule — not Jev — still decides what happens until there's enough evidence to trust the switch.
+
+<Callout type="warn">
+Setting the environment variable `MEMORY_DECISIONS_DISABLED=1` on the buildd deployment turns **every** row in that table off at once — every decision reverts to its pre-Jev rule, team-wide. There's no per-workspace version of this switch.
+</Callout>
 
 ## MCP Tools
 
