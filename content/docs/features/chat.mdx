@@ -1,0 +1,86 @@
+---
+title: Chat
+description: Talk to your buildd agent, file work from the conversation, and set standing rules it always follows
+---
+
+# Chat
+
+Chat is one conversational feed to your buildd agent. Ask what your fleet has
+been doing, work out an approach to something you haven't filed yet, then say
+"make this a mission" or "run it daily" — asking and filing work happen in the
+same place, without translating the answer into a form.
+
+## Scope: your workspaces, routed per turn
+
+A new conversation covers every workspace you can reach. On each turn, buildd
+works out which workspace you mean — from what you said, or a workspace you've
+pinned — and uses that as the default for tools, knowledge, and any tier
+override for that turn. When it isn't confident enough to guess, it lists the
+candidate workspaces and asks instead.
+
+Pin a workspace explicitly from the workspace switcher in the composer; the
+same switcher appears wherever else you filter by workspace (the phone header,
+the desktop bar, Home).
+
+## Tools and approval
+
+Chat reads fleet state freely — missions, tasks, PRs, budgets — with no
+confirmation needed.
+
+Anything chat proposes to **write** — creating a mission, scheduling a task,
+arming a held mission, resuming stalled work — shows as a before/after card
+first. Nothing changes until you approve it. Starting recurring or unattended
+work always asks, even for a tool group you've otherwise allowed.
+
+Your own tool permissions live in the composer's tool controls: flip a tool
+group from **Ask first** to **Allow** and a write in that group can run for you
+without a card — but only once per turn, only when there's no earlier tool
+result already in the conversation's context, and only after the same preview
+buildd would have shown you succeeds underneath. Admin-level writes, and any
+tool nobody's opened up to chat, always ask regardless of your settings.
+
+## Tier
+
+The chip showing what chat is "running on" is a tier switch: **Auto** routes
+each turn on its own — simple turns go to `budget`, complex ones to `premium`,
+and anything in between falls back to `standard` — or you can pin a tier for
+the whole conversation. Opening it shows each tier's model, its expected price
+per 1,000 tokens, and what the conversation has cost so far.
+
+A thumbs up or down on any reply feeds the same model-quality signal buildd
+uses across the fleet; a thumbs-down asks for a one-line reason.
+
+## Standing Rules
+
+Say "always" or "never" in a message — "Always round per line," "Never
+force-push to dev" — and chat offers a small card: *Remember this?* Nothing is
+saved until you tap it.
+
+- **Where it applies.** A rule saves as **everywhere** by default — every
+  workspace, every conversation. If the rule names something
+  workspace-specific (a repo, a path, a mission), the card instead pre-selects
+  **only this workspace**. Either way, you choose the scope before saving, and
+  can change it later.
+- **Yours only.** Standing rules belong to you, not the team. Nobody else's
+  chat loads them, and nobody else can see or edit them.
+- **Settings → Profile.** Every rule you've saved is listed there, newest
+  first, each with **Edit** and **Remove**. You can add one directly from that
+  page too, without waiting for a card to offer it.
+- **Every reply.** Chat loads your applicable rules — everywhere, plus the
+  current workspace's — into every turn, and follows them ahead of anything
+  else it's inferred, up to a small budget. The oldest rules drop first if you
+  have a lot; the Settings page always shows the complete list even when a
+  turn doesn't load all of them.
+- **Reaching filed work.** When a chat turn files a task or mission for you,
+  the rules that applied to that turn are copied into its description under a
+  **"Standing rules (from chat)"** heading — only your own rules, never another
+  user's — so the agent that picks up the work follows them, and anyone
+  reading the task afterward can see why it behaved the way it did.
+
+<Callout type="info">
+Pasting a block of text into chat — a doc, a log, someone else's message — can
+contain the word "always" or "never" and still trigger the card. That's fine:
+the card only ever proposes what it read, and nothing is saved until you tap
+it. Once saved, it's the same rule as any other — editable or removable in
+Settings.
+</Callout>
