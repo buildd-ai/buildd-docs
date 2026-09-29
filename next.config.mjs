@@ -43,6 +43,9 @@ const retiredFeatureRedirects = [
   // rebuild notes. MCP is the supported way to drive buildd from elsewhere.
   ['/docs/features/slack', '/docs/integrations/mcp-server'],
   ['/docs/features/discord', '/docs/integrations/mcp-server'],
+  // Mission "heartbeats" were renamed to "check-ins" when missions moved to
+  // planning as soon as work finishes; the check-in is now only a stuck-check.
+  ['/docs/features/heartbeat', '/docs/features/check-ins'],
 ].map(([source, destination]) => ({ source, destination, permanent: true }));
 
 /** @type {import('next').NextConfig} */
