@@ -195,7 +195,7 @@ A mission is eligible to close when:
 1. All deliverable tasks are **completed** with merged PRs.
 2. No tasks are actively in progress.
 
-When both conditions are true, the mission status transitions to `completed` and the heartbeat schedule pauses automatically.
+When both conditions are true, the mission status transitions to `completed` and its [check-ins](/docs/features/check-ins) stop automatically.
 
 ### requiresReview gate
 
@@ -205,7 +205,7 @@ If the mission was created with `requiresReview: true`, auto-close is suspended.
 2. Review the completed tasks and merged PRs.
 3. Click **Close mission** to confirm.
 
-Until you confirm, the heartbeat continues checking in, but it will not create new tasks.
+Until you confirm, check-ins continue, but they will not create new tasks.
 
 ## Mission Progress (Deliverables Only)
 
@@ -216,18 +216,18 @@ The progress percentage shown on a mission counts only **deliverable tasks** —
 | Task category | Counted |
 |---------------|---------|
 | `feature`, `bug`, `refactor`, `test`, `infra`, `design`, `docs` | Yes |
-| Coordination, aggregation cycles, heartbeat planning | No |
+| Coordination, aggregation cycles, organizer runs | No |
 
-This means a mission whose real work is done shows **100%** even if there are failed or ongoing heartbeat cycles. The percentage reflects outcome, not operational overhead.
+This means a mission whose real work is done shows **100%** even if there are failed or ongoing organizer runs. The percentage reflects outcome, not operational overhead.
 
 ### Why this matters
 
 A multi-phase mission typically includes:
 
 - Execution tasks that build or fix things (deliverables)
-- Planning/heartbeat tasks that coordinate the work (housekeeping)
+- Organizer runs (planning tasks) that coordinate the work (housekeeping)
 
-Without this distinction, a single failed heartbeat cycle would drag a complete mission below 100%. Buildd excludes housekeeping tasks so progress always reflects the state of the actual work.
+Without this distinction, a single failed organizer run would drag a complete mission below 100%. Buildd excludes housekeeping tasks so progress always reflects the state of the actual work.
 
 ## Summary
 

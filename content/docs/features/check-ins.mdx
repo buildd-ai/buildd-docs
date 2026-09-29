@@ -1,0 +1,184 @@
+---
+title: Check-ins
+description: How an auto mission plans its next step, and the hourly stuck-check that backs it up
+---
+
+# Check-ins
+
+An auto [mission](/docs/features/missions) plans its next step **as soon as work
+finishes**. It does not wait for a timer. A **check-in** is the backstop: an
+hourly stuck-check that starts the organizer only when the mission looks stuck.
+Otherwise a check-in costs nothing.
+
+<Callout type="info">
+Check-ins were previously called **heartbeats**. Only the wording changed. The
+API and MCP names are the same as before: `isHeartbeat` turns check-ins on or
+off, and `heartbeatChecklist` holds the [Organizer checklist](#the-organizer-checklist).
+</Callout>
+
+## When a Mission Plans
+
+Each time a mission plans, Buildd opens a [planning-mode](/docs/features/planning-mode)
+task (an **organizer run**). The organizer follows the mission's Organizer
+checklist, decides what the mission needs next, and files the work.
+
+An auto mission plans when:
+
+- a task of the mission finishes (completed or failed);
+- a mission it depends on lands;
+- you resume it, or raise a budget it had run out of;
+- a PR of the mission merges;
+- you add a note to the mission, or answer a question the organizer asked;
+- a check-in finds it stuck;
+- you press **Run**.
+
+The mission's **Organizer runs** list shows each run labelled by its trigger,
+such as *after task X finished*, *dependency met*, *stuck check* or *you ran it*.
+
+Only **one in-flight planning task per mission** is allowed, enforced by a
+database constraint. Two triggers that arrive together start one run, not two.
+
+**Manual missions** do not plan on their own. A mission in manual mode plans
+only when you press **Run**.
+
+## What a Check-in Does
+
+A check-in runs about once an hour. It starts the organizer only when all of
+these hold:
+
+- the mission has no open work: no open task and no planning task in flight;
+- no organizer run, from any trigger, started in the last **two hours**;
+- the mission's state changed since the last check-in.
+
+If any of them is false, the check-in records why it deferred and moves on. It
+makes no model call. The two-hour grace period means a step that was just
+planned after work finished is never planned a second time.
+
+Check-ins catch the cases where the event chain broke: an event that was missed,
+planning retries that ran out, or a start time that has now arrived.
+
+## Turning Check-ins On or Off
+
+New auto missions get check-ins **by default**, whether you create them from the
+dashboard, the API or MCP. A mission created in the dashboard in manual mode
+gets none.
+
+Pass `isHeartbeat: false` to turn them off:
+
+```
+buildd action=manage_missions params={
+  action: "create",
+  title: "Keep production healthy",
+  workspaceId: "...",
+  isHeartbeat: false
+}
+```
+
+Turning check-ins off at creation also skips the auto-started first organizer
+run, so start the mission yourself with **Run**. After that, it plans as work
+finishes, as above. Only the stuck-check is missing.
+
+Check-ins use a [schedule](/docs/features/schedules) named `Mission: <title>`.
+Existing missions are not changed. A mission created before check-ins became
+the default keeps whatever it had.
+
+## The Organizer Checklist
+
+The **Organizer checklist** is what the organizer follows each time it plans the
+next step, whatever triggered the run. If you don't supply one, Buildd installs
+a default that asks the organizer to:
+
+- assess which phase the mission is in, and file the next tasks once a plan exists;
+- create a workspace when the mission has none;
+- declare a concrete `pathManifest` on each new task, so overlapping work gets serialized;
+- avoid re-implementing files a sibling task already owns;
+- propose completion with `missionComplete` when the work is done. The platform
+  still checks open tasks and goal criteria before it closes the mission.
+
+The checklist doesn't need to ask for retries or merge fixes. The platform
+retries failed tasks, and handles PR conflicts and CI failures itself.
+
+Supplying your own checklist **replaces** the default. If you only want to add a
+check, start from the default and append to it.
+
+```
+buildd action=manage_missions params={
+  action: "create",
+  title: "Keep production healthy",
+  workspaceId: "...",
+  heartbeatChecklist: "- [ ] API p99 under 200ms\n- [ ] No error-rate spike in the last hour\n- [ ] No certificate expiring within 30 days"
+}
+```
+
+<Callout type="warn">
+`heartbeatChecklist` is a **single string**, not an array. Write it as markdown,
+one `- [ ]` item per line, separated by newlines. Passing an array does not give
+you a list of items.
+</Callout>
+
+The checklist is stored on the mission's schedule template rather than as a
+column on the mission, which is why it is read and written through the mission
+API rather than a dedicated endpoint.
+
+### Editing the Checklist
+
+From the dashboard, open the mission detail page and edit the **Organizer
+checklist**. Via the API:
+
+```bash
+curl -X PATCH https://buildd.dev/api/missions/{id} \
+  -H "Authorization: Bearer bld_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "heartbeatChecklist": "- [ ] API health\n- [ ] Error rate\n- [ ] DB connections" }'
+```
+
+Or over MCP:
+
+```
+buildd action=manage_missions params={
+  action: "update",
+  missionId: "...",
+  heartbeatChecklist: "- [ ] API health\n- [ ] Error rate\n- [ ] DB connections"
+}
+```
+
+Sending an empty value clears your custom checklist. Reading the mission back
+with `action: "get"` shows the active checklist and whether check-ins are on.
+
+## Active Hours
+
+Check-ins can be confined to part of the day:
+
+```
+buildd action=manage_missions params={
+  action: "update",
+  missionId: "...",
+  activeHoursStart: 9,
+  activeHoursEnd: 18,
+  activeHoursTimezone: "America/New_York"
+}
+```
+
+Both hours are integers from 0 to 23 and must differ from each other. Active
+hours apply to check-ins only. A mission still plans when work finishes, at any
+hour.
+
+## When the Mission Completes
+
+When a mission completes, its check-ins stop automatically. See
+[Autonomous Operation](/docs/features/autonomous) for how organizer runs are
+excluded from a mission's progress percentage.
+
+## Related MCP Parameters
+
+All of these are parameters of `manage_missions` (an **admin-level** action).
+The names still say "heartbeat". That is the internal name for check-ins.
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `isHeartbeat` | boolean | Turn check-ins on or off. On by default for new auto missions. |
+| `heartbeatChecklist` | string | The Organizer checklist, as markdown |
+| `cronExpression` | string | Check-in schedule; defaults to `*/30 * * * *`. Check-ins run at most once an hour. |
+| `activeHoursStart` | number | First hour (0–23) a check-in may run |
+| `activeHoursEnd` | number | Last hour (0–23) a check-in may run |
+| `activeHoursTimezone` | string | IANA timezone for the active-hours window |

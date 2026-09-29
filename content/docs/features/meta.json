@@ -10,7 +10,7 @@
     "dependencies",
     "missions",
     "mission-branches",
-    "heartbeat",
+    "check-ins",
     "autonomous",
     "worker-instructions",
     "teams",

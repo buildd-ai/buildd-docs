@@ -35,8 +35,8 @@ paths that produce one:
 
 | Trigger | What creates the planning task |
 |---|---|
-| **Mission organizer cycle** | The most common path by far. Every mission cycle — auto-start, the dashboard **Run** button, or a [heartbeat](/docs/features/heartbeat) tick — opens a planning task to decide what work the mission needs next. |
-| **Mission schedule** | Creating a mission with a cron expression or heartbeat writes a task template with `mode: 'planning'`; each cron tick materializes that template into a real planning task. |
+| **Mission organizer run** | The most common path by far. An auto mission plans its next step as soon as work finishes, and also when a dependency lands, it is resumed or its budget raised, one of its PRs merges, or you add a note or answer a question. Auto-start and the dashboard **Run** button do the same. Each run opens a planning task to decide what work the mission needs next. |
+| **Mission schedule** | A mission's schedule writes a task template with `mode: 'planning'`. For a mission with [check-ins](/docs/features/check-ins), a tick materializes it only when the mission looks stuck. For a recurring mission with check-ins off, every tick does. |
 | **Plan rejection** | Rejecting a plan creates a *new* planning task titled `<original> (revised)`, carrying your feedback, so the agent can try again. |
 | **Mission completion evaluation** | When a planning cycle asserts the mission is complete but the deterministic completion check refuses, Buildd opens an independent `Evaluate mission completion: <title>` planning task to adjudicate. |
 
