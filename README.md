@@ -60,6 +60,57 @@ Worth matching, since the existing pages are consistent about it:
   here have previously described a security check that had been deleted and a
   settings UI that had been removed.
 
+### Prose linting
+
+`pnpm lint:prose` (`scripts/lint-prose.mjs`) scores every page under
+`content/docs/` for AI-voice tells — long sentences, passive voice,
+marketing words, banned verbs (leverage, utilize, ensure, ...), overused AI
+words, hollow phrases, em dashes, and the "not X, it's Y" pivot. It skips
+frontmatter, fenced code blocks and inline code, and any page whose
+frontmatter sets `generated: true`.
+
+Score is violations per 100 words (`per100w`), so file length doesn't skew
+the comparison. `--max <n>` fails the run if any file is over `n`; CI runs it
+report-only (`continue-on-error: true` in
+`.github/workflows/docs-lint.yml`) so it annotates PRs without blocking
+them, while the threshold is tight enough that new regressions still stand
+out as warnings on the PR diff.
+
+Current threshold: **6 per100w**, set just above the worst file in the
+baseline below (`device-auth.mdx` at 5.25). Run `pnpm lint:prose` locally to
+see the full per-file table.
+
+Baseline (2026-10-03), worst 5 files:
+
+| File | per100w |
+| --- | --- |
+| `features/device-auth.mdx` | 5.25 |
+| `features/teams.mdx` | 4.93 |
+| `features/worker-instructions.mdx` | 4.92 |
+| `features/chat.mdx` | 3.91 |
+| `features/attachments.mdx` | 3.86 |
+
+Rules considered and deliberately **not** implemented, because they fire on
+plain, correct writing in this docs set rather than on AI voice:
+
+- **Banning contractions or semicolons** (ASD-STE100 Simplified Technical
+  English rules, which the `techlang-lint.py` reference tool applies) — this
+  docs set uses both correctly throughout, so the rule would flag normal
+  prose, not slop.
+- **Flagging "key" as an overused adjective** — buildd docs use "key"
+  constantly as a literal noun (API key, model key), so the rule would
+  swamp every page with unrelated noise.
+- **Flagging "gate" / "gated" / "gating"** — a domain term here (mission
+  gates, goal-criteria gating), not a figurative AI tell.
+- **Flagging "robust"** — used about as often in a genuinely technical
+  sense (robust error handling) as in the figurative AI sense; too
+  ambiguous to score reliably.
+- **Flagging "highlight" as a verb** — ordinary in UI instructions
+  ("highlight the row"), not a reliable tell.
+
+The source list behind the marketing/banned-verb/overused-word rules, and
+the rationale for each, lives in `scripts/lint-prose.mjs`.
+
 ## Deployment
 
 ### Vercel (Recommended)
