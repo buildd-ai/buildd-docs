@@ -1,4 +1,4 @@
 {
   "title": "Concepts",
-  "pages": ["how-buildd-runs-ai", "task-access", "secrets"]
+  "pages": ["how-buildd-runs-ai", "task-access", "agent-repo-access", "secrets"]
 }
