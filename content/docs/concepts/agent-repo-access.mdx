@@ -1,0 +1,83 @@
+---
+title: How Agents Access Your Repo
+description: What an agent run can do in your GitHub repository, which credential it uses, and how hosted and self-hosted runners differ
+---
+
+# How Agents Access Your Repo
+
+You authorize buildd once, by installing the buildd GitHub App on your
+repository. After that, each agent run gets access of its own. It does not act
+as you or borrow your GitHub identity, and it never needs a personal access
+token, password or SSH key.
+
+## What you authorize
+
+| Step | Who | What it grants |
+|---|---|---|
+| Install the GitHub App | A repo or org admin, once | The App's permissions on the repositories you pick |
+| Link a workspace to a repo | A team admin, once | Which single repository that workspace's tasks work in |
+
+The repository a task works in always comes from its workspace's link. An agent
+can't choose a different one: not through a git remote, the task text, or a
+tool parameter.
+
+## What each run gets
+
+When a task runs, buildd mints a GitHub token for **that run only**:
+
+- **One repository.** It's the workspace's linked repo. GitHub refuses the token
+  for any other.
+- **Short-lived.** It's a GitHub App installation token, which expires within
+  an hour. The runner asks for a new one while the run is still going.
+- **Only while the run is live.** Once the run ends, fails or is stopped, buildd
+  stops issuing tokens for it.
+- **Only the permissions a task needs:**
+
+  | Permission | Level |
+  |---|---|
+  | Contents | write: clone, fetch, push the task branch |
+  | Pull requests | write |
+  | Issues | write (for comments) |
+  | Checks, Actions, Statuses | read (CI state) |
+  | Metadata | read |
+  | Workflows | not granted |
+
+  It never asks for more than your installation has. Because Workflows is not
+  granted, GitHub refuses a push that changes files under `.github/workflows/`.
+  Workflow changes go to a person.
+
+Pull requests are opened through buildd (the `create_pr` action), not with a
+raw token. That way buildd's rules apply: which base branch a mission's PRs
+target, how duplicates are handled, and your workspace's merge policy.
+
+## Hosted vs self-hosted runners
+
+The run's token is the same in both cases. What differs is where it lives.
+
+| | Hosted runner (preview) | Self-hosted runner |
+|---|---|---|
+| Where the agent runs | An isolated container per task | Your machine |
+| GitHub token | Never enters the container. buildd adds it to the container's GitHub requests on the way out | Written where the agent's `git` and `gh` read it, so the agent process can read it |
+| Model credential | Never enters the container. It's added the same way | On the runner |
+| Credentials sent by the agent | Removed before the request leaves | Not inspected |
+| `git push` to your default or release branches | Refused | Not refused by buildd |
+| Merging through GitHub's merge API | Refused. Merges go through buildd's merge policy | Not refused by buildd |
+| buildd credential inside the run | A token for this one task, usable only on that task's routes | The runner's API key |
+
+On a hosted runner, the agent can do its work without ever holding a broad
+credential. If its container is compromised, there is no GitHub or model secret
+inside to steal.
+
+<Callout type="info">
+  Whichever runner you use, protect your default branch with a GitHub
+  [ruleset](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
+  that requires a pull request. GitHub enforces it on every push, including
+  pushes made with the App's token.
+</Callout>
+
+## Related
+
+- [GitHub integration](/docs/features/github)
+- [Task access model](/docs/concepts/task-access)
+- [Secrets](/docs/concepts/secrets)
+- [Self-hosting](/docs/deployment/self-hosting)
