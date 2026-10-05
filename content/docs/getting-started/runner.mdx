@@ -83,7 +83,7 @@ The runner needs a model credential for the agent it runs. Pick one:
 | A Claude subscription | Run `claude login` on the runner machine, or set `CLAUDE_CODE_OAUTH_TOKEN` in the runner's environment. The seat stays on that machine |
 | An Anthropic API key | Store it as a team secret in buildd, or set `ANTHROPIC_API_KEY` on the runner |
 | OpenRouter or a LiteLLM gateway | Set an agent model endpoint under **Connections → Model providers**, or set `llmProvider` / `LLM_PROVIDER` on the runner |
-| An OpenAI key, for Codex tasks | See [Codex Backend](/docs/getting-started/codex-backend) |
+| A ChatGPT plan or OpenAI key, for Codex tasks | See [Codex Backend](/docs/getting-started/codex-backend) |
 
 A key or token already in the runner's environment wins over the one buildd
 stores. A team agent model endpoint replaces both, and a per-machine

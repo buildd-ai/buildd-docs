@@ -69,12 +69,12 @@ and [Codex Backend](/docs/getting-started/codex-backend).
 | Harness | Subscription | API key |
 |---|---|---|
 | Claude Code | `claude login` on the runner, or `CLAUDE_CODE_OAUTH_TOKEN` in the runner's environment | `anthropic_api_key` secret, or `ANTHROPIC_API_KEY` on the runner |
-| Codex | ChatGPT/Codex `auth.json` (`codex_credential`) | `OPENAI_API_KEY` on the runner |
+| Codex | `codex login` on the runner, with `CODEX_HOME` pointing at it | `openai_api_key` secret, or `OPENAI_API_KEY` on the runner |
 | Either, through your gateway or OpenRouter | No | An **agent model endpoint** under **Connections → Model providers** (team-wide or one workspace) |
 | Claude Code via OpenRouter, one machine | No | `llmProvider: openrouter` + `llmApiKey` in the runner's config |
 
-A Claude subscription seat belongs to the runner machine that logged in. Keep
-it there. A key or token already in the runner's environment wins over a
+A subscription seat belongs to the runner machine that logged in. Keep it
+there: server-stored Claude and Codex seats are being removed. A key or token already in the runner's environment wins over a
 server-managed secret, which buildd delivers when a runner claims a task. An
 agent model endpoint replaces both, and a per-machine `LLM_PROVIDER` wins over
 the endpoint. Codex tasks can use the endpoint only when it speaks the OpenAI
@@ -185,8 +185,8 @@ its route), the base model runs instead.
 
 | You... | Runners (**Connections → Runners**) | Server-side (**Connections → Model providers**) | Whose key |
 |---|---|---|---|
-| **Pay per token** | Store an `anthropic_api_key` secret, set an agent model endpoint for your gateway or OpenRouter, or set `OPENAI_API_KEY` on the runner for Codex. Runners still run the agent | Add an OpenRouter, Anthropic or OpenAI key. Chat and grading then run server-side | Team key |
-| **Have a Claude or ChatGPT subscription** | Run `claude login` (or set `CLAUDE_CODE_OAUTH_TOKEN`) on the runner machine. For Codex, add the `auth.json`. This is where the heavy work runs | Optional. Add a key only if you want chat. With a team key, grading moves server-side; override it to Runner under **Advanced** to keep it on your seat | Team key, or each person's own |
+| **Pay per token** | Store an `anthropic_api_key` or `openai_api_key` secret, or set an agent model endpoint for your gateway or OpenRouter. Runners still run the agent | Add an OpenRouter, Anthropic or OpenAI key. Chat and grading then run server-side | Team key |
+| **Have a Claude or ChatGPT subscription** | Run `claude login` (or set `CLAUDE_CODE_OAUTH_TOKEN`) on the runner machine. For Codex, run `codex login` there. This is where the heavy work runs | Optional. Add a key only if you want chat. With a team key, grading moves server-side; override it to Runner under **Advanced** to keep it on your seat | Team key, or each person's own |
 | **Self-host** | Same as either row above | Either add keys in the app, or set `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` **and** `BUILDD_ALLOW_ENV_INFERENCE_KEYS=1` | Any |
 
 <Callout type="warn">

@@ -22,7 +22,7 @@ Visit `http://localhost:3000/docs`
   - `index.mdx` - Introduction page
   - `getting-started/` - Running a worker, Codex backend
   - `features/` - Missions, skills, schedules, memory, integrations
-  - `integrations/` - MCP server, GitHub Actions
+  - `integrations/` - MCP server, ai-kit
   - `concepts/` - How buildd runs AI, access model, secrets
   - `deployment/` - Self-hosting
 

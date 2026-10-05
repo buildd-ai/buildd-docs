@@ -11,25 +11,25 @@ Set `backend: codex` on a task, a role or the workspace. It runs on your
 
 ## Setup
 
-Open **Settings → Connections → Runners** and find the Codex card. Pick one:
-
 | Option | How |
 |---|---|
-| **Sign in with device code** (recommended) | Click it, open the link, sign in with the account that holds your ChatGPT plan, and approve the code |
-| **Paste auth.json** | Run `codex login --device-auth` on any machine, then paste the contents of `~/.codex/auth.json` |
-| **OpenAI API key** | Paste the key into the OpenAI API key card. You pay per token |
+| **ChatGPT plan, on the runner** (recommended) | On the runner machine, run `codex login` (or `codex login --device-auth` with no browser). Then set `CODEX_HOME=$HOME/.codex` in the runner's environment so it finds the `auth.json` |
+| **OpenAI API key** | In **Settings → Connections → Runners**, paste the key into the OpenAI API key card. You pay per token. You can also set `OPENAI_API_KEY` on the runner |
+| **Your gateway** | A team agent model endpoint that speaks the OpenAI API (a LiteLLM gateway or OpenRouter) also serves Codex tasks. See [How Buildd Runs AI](/docs/concepts/how-buildd-runs-ai) |
 
-A runner can also use its own credentials: an `auth.json` in its `CODEX_HOME`,
-or `OPENAI_API_KEY` in its environment. A team agent model endpoint that speaks
-the OpenAI API (a LiteLLM gateway or OpenRouter) also serves Codex tasks. See
-[How Buildd Runs AI](/docs/concepts/how-buildd-runs-ai).
+The ChatGPT seat stays on the machine that logged in, like a Claude seat.
 
-A stored credential covers the whole team by default. You can narrow it to one
-workspace.
+## Stored ChatGPT credentials (being removed)
 
-## Token Refresh
+<Callout type="warn">
+  The Codex card in **Settings → Connections → Runners** still lets you sign in
+  with a device code or paste an `auth.json`, and buildd delivers that
+  credential to runners. Server-stored Codex credentials are being removed. Use
+  a login on the runner instead.
+</Callout>
 
-Buildd refreshes your Codex tokens before they expire. If a refresh fails, the
+While it lasts, a stored credential covers the whole team by default, and you
+can narrow it to one workspace. Buildd refreshes the tokens before they expire. If a refresh fails, the
 card shows **Expired**. Use **Refresh now**, **Re-auth via device login** or
 **Paste auth.json** to reconnect, and **Verify** to check it against OpenAI.
 **Revoke** deletes the stored tokens. Codex tasks already running finish on the
