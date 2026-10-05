@@ -11,11 +11,13 @@ Teams are the top-level organizational unit in Buildd. All resources — workspa
 
 | Role | Permissions |
 |------|-------------|
-| **Owner** | Full access. Manage billing, delete team, transfer ownership. |
-| **Admin** | Manage workspaces, accounts, skills, and team members. Invite new members. |
+| **Owner** | Full access. Delete the team, add owners, and change which roles hold each permission. |
+| **Admin** | Manage accounts, skills and team members. Invite new members. Deleting a workspace is owner-only by default. |
 | **Member** | View workspaces and tasks. Cannot manage team settings or invite members. |
 
-Every team has exactly one owner (the creator). Admins and members can be added via invitations.
+These are the defaults. A team can change which roles hold each permission. The
+creator starts as owner, and an owner can make another member an owner. Admins
+and members join through invitations.
 
 ## Team Resources
 

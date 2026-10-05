@@ -86,15 +86,12 @@ Reference files are stored in the skill's `metadata.referenceFiles` field and de
 
 ### From the Dashboard
 
-1. Navigate to your workspace
-2. Click **Skills** in the header
-3. Click **New Skill**
-4. Fill in:
-   - **Name** — Human-readable name (e.g., "Code Review Standards")
-   - **Slug** — Auto-generated from name, editable (e.g., `code-review-standards`)
-   - **Description** — When the agent should use this skill
-   - **SKILL.md Content** — The full instructions
-5. Click **Register Skill**
+1. Navigate to your workspace and open **Roles**
+2. Click **+ New Role**
+3. Fill in **Name**, **Slug** (generated from the name, editable), **Goal** and
+   **Instructions**, and optionally **Model**, **Agent backend** and
+   **Can Delegate To**
+4. Click **Create Role**
 
 Skills appear in the workspace skills list with enable/disable toggles and expandable content previews.
 
@@ -149,38 +146,35 @@ When a worker claims a task with skills attached, Buildd resolves the skill cont
 
 1. **Worker claims task** — the runner polls for available work
 2. **Server resolves skills** — matches skill slugs to the registry, bundles the full SKILL.md content and any reference files
-3. **Runner writes files** — skill content is written to `~/.claude/skills/{slug}/SKILL.md` in the **user's home directory**, not the project directory
-4. **Agent discovers skills** — Claude Code natively discovers `~/.claude/skills/` and loads them using progressive disclosure
+3. **Runner writes files.** The runner writes each skill to
+   `.claude/skills/{slug}/SKILL.md` inside the session's working directory, with a
+   `.gitignore` of `*` so the files never get committed
+4. **Agent discovers skills.** Claude Code finds them there and loads them with
+   progressive disclosure
 
 ```
-~/.claude/
+<session working directory>/.claude/
 └── skills/
     ├── code-review/
-    │   ├── SKILL.md            ← Written before agent starts
-    │   └── .hash               ← Content hash for idempotent sync
+    │   └── SKILL.md            ← Written before agent starts
     └── security-audit/
         ├── SKILL.md
         └── CHECKLIST.md        ← Reference file from metadata
 ```
 
-### Skills Persist Between Sessions
+### Skills Last One Session
 
-Delivery is **idempotent and deliberately persistent**. Two consequences worth
-understanding:
-
-- **Hash-cached.** The runner stores a content hash alongside each skill. On the next claim, if the hash matches what is already on disk, the write is skipped entirely. Syncing an unchanged skill costs nothing.
-- **Never cleaned up.** Skill files are *not* removed when the agent session ends. They stay in `~/.claude/skills/` until they are overwritten by a newer version of the same slug. Because the location is the home directory rather than the repo, skills also never appear as untracked files in your working tree or risk being committed.
-
-To retire a skill from a machine, delete its directory under `~/.claude/skills/`
-yourself; disabling or deleting the skill in the registry stops future delivery
-but does not reach back and remove files already written.
+Delivery is per session. The runner records each skill directory it writes and
+removes it when the session ends, and it never caches skill text on disk between
+sessions. Disabling or deleting a skill in the registry takes effect on the next
+claim. If the repository already ships a skill with the same slug, the runner
+leaves the repo's copy alone.
 
 <Callout type="info">
-Skills attached to a **role** travel by a second, separate path: role bundles are
-staged under `~/.buildd/roles/{slug}/` and, for builder-style roles, overlaid into
-the repository working directory at `{repo}/.claude/skills/{slug}/`. That overlay
-is not cleaned up either. If you see skill files inside a checkout, they arrived
-via a role, not via the `skillSlugs` delivery described above.
+Skills attached to a **role** travel the same way. Role files are staged under
+`<BUILDD_HOME>/session-prompts/<workerId>/role` for tasks with no repo, or
+overlaid into the session's working directory, and removed when the session
+ends. A role never overwrites the repo's `CLAUDE.md`.
 </Callout>
 
 The agent's prompt also includes a context section listing installed skills and their paths, so the agent knows what expertise is available.
@@ -189,7 +183,7 @@ The agent's prompt also includes a context section listing installed skills and 
 
 ### Browsing and Editing
 
-Navigate to your workspace and click **Skills** in the header. From the skills list you can:
+Navigate to your workspace and open **Roles**. From the list you can:
 
 - **Expand** any skill to preview its SKILL.md content
 - **Toggle** skills on or off — disabled skills can't be attached to new tasks
@@ -257,6 +251,10 @@ Skills can be promoted to **roles** by setting `isRole: true`. A role is a skill
 | `allowedTools` | **Subagent tools only.** The tool set given to a skill subagent spawned from this row — it does **not** narrow the main agent working a task. Empty = the subagent default set (`Read`, `Grep`, `Glob`, `Bash`, `Edit`, `Write`). Options: `Read`, `Write`, `Edit`, `Bash`, `Grep`, `Glob`, `WebSearch`, `WebFetch`, `Agent`, `NotebookEdit` |
 | `canDelegateTo` | Slugs of other roles this agent can create tasks for |
 
+| `connectorRefs` | IDs of team [connectors](#connectors--how-roles-get-mcp-servers) this role mounts. **This is how a role gets MCP servers.** |
+| `defaultBackend` | Default agent engine (`claude` or `codex`) for tasks routed to this role |
+| `color` | Hex color for the role's avatar in the dashboard |
+
 <Callout type="warn">
   **`allowedTools` is not a security boundary.** It is applied when this role runs
   as a *skill subagent* (see [Skills as Subagents](#skills-as-subagents)). The main
@@ -264,9 +262,6 @@ Skills can be promoted to **roles** by setting `isRole: true`. A role is a skill
   skills attached runs with the SDK's default tools — shell and file writes
   included — no matter what is set here. Do not rely on it to contain an agent.
 </Callout>
-| `connectorRefs` | IDs of team [connectors](#connectors--how-roles-get-mcp-servers) this role mounts. **This is how a role gets MCP servers.** |
-| `defaultBackend` | Default agent engine (`claude` or `codex`) for tasks routed to this role |
-| `color` | Hex color for the role's avatar in the dashboard |
 
 Roles appear on the **Team** page with live activity (current task, status, duration). Tasks can be routed to a specific role via `roleSlug` — only workers advertising that role will claim the task.
 
@@ -369,7 +364,7 @@ buildd action=delete_skill params={ slug: "ops" }
 
 ### Default Roles
 
-Every new **team** is seeded with seven starter roles:
+Every new **team** is seeded with eight starter roles:
 
 | Slug | Purpose |
 |------|---------|
@@ -380,6 +375,7 @@ Every new **team** is seeded with seven starter roles:
 | `analyst` | Data and analysis deliverables |
 | `reviewer` | Reviews PRs and completed work |
 | `spec-validator` | Checks implementation against spec |
+| `visual-auditor` | Screenshots the pages a mission changed at phone and desktop width, judges each shot, and files fix tasks. Needs a runner with a browser |
 
 Seeding is team-level, not per-workspace, and is safe to re-run — it will not
 duplicate a role whose slug already exists on the team. Add more roles as your
@@ -431,7 +427,7 @@ you pass. The values the product itself writes are:
 |--------|-----------|
 | `manual` | Creating a role or workspace override through the roles API or dashboard |
 | `mcp` | `register_skill`, when the caller does not supply its own `source` |
-| `system` | The seven default roles seeded for a new team |
+| `system` | The eight default roles seeded for a new team |
 
 `source` may also be null. It is a label only — nothing in delivery, dispatch or
 permissions reads it.
@@ -509,4 +505,4 @@ agents: {
 
 The main worker can then delegate specialized work via the `Task` tool rather than executing everything in its own context. This keeps context clean and allows parallel execution of independent skill work.
 
-This feature requires the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` environment variable.
+Turn it on per task with `context.useSkillAgents`. The runner sets the environment the SDK needs.

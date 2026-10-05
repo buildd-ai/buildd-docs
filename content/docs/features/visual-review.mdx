@@ -1,0 +1,41 @@
+---
+title: Visual Review
+description: How a mission gets phone and desktop screenshots of the pages it changed, and how you sign them off
+---
+
+# Visual Review
+
+When a mission changes what a page renders, buildd can screenshot the result and
+ask you to sign it off before the mission closes.
+
+## How it starts
+
+Missions have `autoSurfaceAudit` on by default. When the mission files a task
+whose `pathManifest` touches UI code, buildd adds one `[surface audit]` task.
+It runs after the building tasks finish, as the **Visual Auditor** role. The
+auditor screenshots each changed page at phone and desktop width, judges each
+shot (`ok`, `issue` or `unsure`), and files fix tasks for real problems. It
+never edits code or opens PRs.
+
+Today buildd counts a path as UI code only under `apps/web/src/app/` or
+`apps/web/src/components/` (API routes excluded). A repo with another layout
+won't start an audit on its own yet.
+
+<Callout type="warn">
+  The audit needs a runner with a working headless browser. The installer sets
+  one up (see [Runner Setup](/docs/getting-started/runner)). With no such runner,
+  the audit waits, and the mission page says so.
+</Callout>
+
+## Reviewing the shots
+
+Open the mission and go to **Visual review**. For each shot, pick
+**Looks right** or **Needs fix**. Needs fix files a `[surface fix]` task. You can
+also waive a fix or send the auditor guidance. Reviewing takes a dashboard
+sign-in; API keys can read the review (`get_visual_review`) but not decide it.
+
+## Completion
+
+Before a mission closes, buildd checks whether its merged PRs changed rendered
+UI. If they did, the mission waits for the visual review, unless someone waived
+it with a reason or the mission turned `autoSurfaceAudit` off.

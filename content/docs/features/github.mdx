@@ -34,7 +34,7 @@ Connect a GitHub repository to a workspace to enable:
 
 - **Automatic workspace detection** — the MCP server detects which workspace to use by reading the `git remote origin` URL
 - **PR creation** — workers can create pull requests via the API
-- **Issue-to-task sync** — new GitHub issues become Buildd tasks automatically
+- **Issue-to-task sync**: issues with the trigger label become Buildd tasks
 
 ## Webhooks
 
@@ -42,7 +42,10 @@ Buildd listens for GitHub webhook events:
 
 ### `issues` — Automatic Task Creation
 
-When a new issue is opened on a linked repository, Buildd automatically creates a task:
+When an issue on a linked repository is opened or labeled with the workspace's
+trigger label (`buildd` or `ai` unless you set your own), Buildd creates a task.
+Closing the issue cancels the linked task, and reopening it sets the task back to
+pending.
 
 - Task title matches the issue title
 - Task description includes the issue body
@@ -52,6 +55,10 @@ When a new issue is opened on a linked repository, Buildd automatically creates 
 ### `installation` — App Lifecycle
 
 Handles installation created, deleted, and suspended events to keep the database in sync.
+
+Buildd also handles `pull_request`, `pull_request_review`,
+`pull_request_review_comment`, `check_suite`, `workflow_run`, `push` and `ping`
+to track PRs, CI and merges.
 
 ### `installation_repositories` — Repo Changes
 
@@ -67,9 +74,12 @@ buildd action=create_pr params={
   title: "feat: add user settings page",
   head: "buildd/task-123",
   base: "main",
+  lede: "Adds a settings page where users edit their profile.",
   body: "Implements user settings with profile editing"
 }
 ```
+
+`lede` is required: one plain sentence that opens the PR body.
 
 `workerId` is resolved from the calling worker's context, so you only need to
 pass it explicitly when acting on another worker's behalf. If the workspace has

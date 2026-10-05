@@ -59,7 +59,8 @@ Under this strategy:
 
 ## Configuring
 
-A workspace-level setting picks the default strategy applied to new missions.
-Any individual mission can override that default and use the other strategy
-instead — set it when the mission is created, or change it before the mission
-starts producing task PRs.
+New missions use `mission-branch` unless you opt out. The workspace setting
+`gitConfig.branchStrategy` picks the default for new missions: leave it unset
+for `mission-branch`, or set it to `direct`. A mission can pass its own
+`branchStrategy` when it is created. Buildd fixes the strategy at creation, so
+changing the workspace default later doesn't retarget existing missions.

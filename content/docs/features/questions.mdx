@@ -1,0 +1,49 @@
+---
+title: Agent Questions
+description: What happens when an agent asks a question, and which questions always reach a person
+---
+
+# Agent Questions
+
+When an agent stops to ask a question, buildd checks it before anyone gets
+pinged. A small decision model, **Jev** (or your team's decision model), looks
+at it first.
+
+## What Jev does
+
+1. **Checks the question makes sense on its own.** If someone with no context
+   couldn't act on it, Jev sends it back to the agent with what to add. This
+   happens at most twice per worker. After that the question goes out as written.
+2. **Decides, holds or asks.**
+   - **Decide.** Jev picks one of the options the agent listed, and the agent
+     carries on. Nobody is notified.
+   - **Hold.** The question is parked. Today a hold notifies you the same way an
+     ask does.
+   - **Ask.** The question goes to a person, and the task waits for an answer.
+
+Jev only decides when it is confident and the agent offered options. When
+confidence is low, the question has no valid option, or Jev is slow or
+unavailable, the question goes to a person unchanged.
+
+## Questions that always go to a person
+
+Jev never answers a question in these categories:
+
+| Category | When |
+|---|---|
+| Migrations | The task touches schema or migration paths |
+| Auth and secrets | The task touches auth or secret paths |
+| CI and deploy | The task touches CI or deploy config |
+| Protected paths | The task touches paths your merge policy protects |
+| Spending | The question mentions money, budgets, subscriptions, plans or purchases |
+
+The path categories use the risk-class paths buildd detected for your
+[merge policy](/docs/features/autonomous#merge-policy).
+
+## Turning it off
+
+Set `gitConfig.jevQuestionGate: false` on the workspace to send every question
+straight to a person. Workspaces marked `sensitive` never send question text to
+a model.
+
+Every decision is recorded, so you can see what Jev answered on your behalf.

@@ -12,8 +12,8 @@ Complete guide for self-hosting Buildd on your own infrastructure.
 Buildd consists of:
 - **Web server** (Next.js) - Dashboard, API, and authentication
 - **Database** (PostgreSQL) - Neon or any Postgres instance
-- **Cron trigger** (External) - Calls `/api/cron/schedules` hourly, on the hour
-- **Workers** (External) - Run on laptops, VMs, or CI runners
+- **Cron trigger** (External) - Calls `/api/cron/schedules` hourly, on the hour, plus the other `/api/cron/*` jobs
+- **Runners** (External) - Run on your laptops, servers or VMs. See [Runner Setup](/docs/getting-started/runner)
 
 ## Prerequisites
 
@@ -144,6 +144,15 @@ cd packages/core
 bun run db:migrate
 ```
 
+## Other Cron Jobs
+
+`/api/cron/schedules` is the one most setups need first, but it is not the only
+job. Buildd has more routes under `/api/cron/*` (PR reconciliation, Codex token refresh,
+dispatch drain and others). `cron-manifest.json` at the root of the
+[buildd repo](https://github.com/buildd-ai/buildd) lists every job with its path,
+method and schedule; skip entries marked `"enabled": false`. Call each one with
+the same `Authorization: Bearer YOUR_CRON_SECRET` header.
+
 ## Alternative Cron Trigger Services
 
 If you don't want to manage cron yourself:
@@ -202,14 +211,14 @@ Add entry:
 | `AUTH_URL` / `NEXTAUTH_URL` | Nothing breaks. `auth.ts` sets `trustHost: true`, so NextAuth infers the host from the request; every other read is a fallback chain ending in `http://localhost:3000`. `NEXTAUTH_URL` is checked first where both are read |
 | `PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER`, `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER` | Realtime dashboard updates are disabled; the Pusher client is `null` unless the set is complete |
 | `VOYAGE_API_KEY` | Semantic embedding and reranking are unavailable — knowledge retrieval degrades to a lexical-only fallback with no error |
-| `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_PRIVATE_KEY` (or `GITHUB_APP_PRIVATE_KEY_BASE64`) | The whole GitHub integration is off — `isGitHubAppConfigured()` is false, so no PR creation, no merges, no `repository_dispatch` |
+| `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_PRIVATE_KEY` (or `GITHUB_APP_PRIVATE_KEY_BASE64`) | The whole GitHub integration is off — `isGitHubAppConfigured()` is false, so no PR creation and no merges |
 | `GITHUB_APP_CLIENT_SECRET` | GitHub sign-in fails. There is no `AUTH_GITHUB_ID`/`AUTH_GITHUB_SECRET` — the GitHub App's OAuth credentials double as the login provider's |
 | `GITHUB_APP_WEBHOOK_SECRET` | **Fails open.** `verifyWebhookSignature()` logs a warning and returns `true`, so any unauthenticated caller can forge a GitHub webhook. Set it |
 | `GITHUB_APP_SLUG` | The install URL defaults to the `buildd` app slug — wrong for your own app |
 | `SLACK_SIGNING_SECRET` | Fails closed — the Slack integration route rejects every request |
 | `DISCORD_PUBLIC_KEY` | Fails closed — the Discord integration route rejects every request |
-| `ANTHROPIC_API_KEY` | Optional for the web app; workers supply their own credentials. Only the task classifier throws without it |
-| `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_PUBLIC_URL` | File-artifact upload and download are disabled (`isStorageConfigured()` gates them). `STORAGE_REGION` defaults to `auto` |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` | Optional. Server-side AI (chat, grading, classification) can use keys stored in the app instead. In production these env vars are **ignored** unless `BUILDD_ALLOW_ENV_INFERENCE_KEYS=1` is also set, and a key stored in the app always wins. Runners never use them |
+| `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | File-artifact upload and download are disabled (`isStorageConfigured()` gates them). `STORAGE_REGION` defaults to `auto` |
 | `BUILDD_SIGNING_KEY_TEAM_ID` | JWKS key storage and rotation throw. Only needed if you use signed tokens |
 | `ALLOWED_EMAILS` | Sign-in is open to any email that completes OAuth |
 

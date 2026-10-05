@@ -27,21 +27,20 @@ curl -X POST https://buildd.dev/api/tasks \
 
 ### Creating Dependencies
 
-Dependencies can be set in three places:
+Dependencies can be set in two places:
 
 - **New Task page** — expand "Advanced options" to reveal the dependency selector
 - **Edit Task modal** — open any task and use the dependency dropdown
-- **Quick Create modal** — dependency selector available when a workspace is selected
 
 The dependency selector is a searchable dropdown that shows all non-completed tasks in the workspace. Selected dependencies appear as removable chips with status indicators.
 
 ### Viewing Dependencies
 
-On a task's detail page, the **Dependencies** section shows:
+On a task's detail page:
 
-- Each dependency as a clickable link to the parent task
-- A status badge (pending, in progress, completed, failed) next to each
-- A green checkmark with "All dependencies resolved" when all are complete
+- A **Blocked by N dependencies** banner lists what the task waits on, with a
+  **Merge PR #N** link where a dependency's PR is still open
+- An **Unblocked by this** section lists the tasks waiting on this one
 
 ### Sidebar Lock Icon
 
@@ -122,7 +121,7 @@ PATCH /api/tasks/{id}
 <Callout type="warn">
   `buildd action=update_task` **cannot** change dependencies. Its handler copies a
   fixed set of fields — `title`, `description`, `priority`, `project`, `status`,
-  `backend`, `maxLoops` — into the PATCH body and ignores everything else. A
+  `backend`, `maxLoops`, `tier`, `model` — into the PATCH body and ignores everything else. A
   `dependsOn` argument is dropped without an error, so the call returns
   `Task updated: ...` and the dependency list is unchanged.
 </Callout>

@@ -12,6 +12,8 @@
     "mission-branches",
     "check-ins",
     "autonomous",
+    "questions",
+    "visual-review",
     "worker-instructions",
     "teams",
     "github",

@@ -1,13 +1,13 @@
 ---
 title: Autonomous Workflow
-description: Auto-merge, what a reviewer approval may merge, requiresReview opt-in, mission dormancy, and progress tracking
+description: Auto-merge, merge policies and review agents, requiresReview opt-in, mission auto-complete, and progress tracking
 ---
 
 # Autonomous Workflow
 
 Buildd is autonomous by default. Agent PRs merge automatically once green CI **and** a set of safety rails all pass, missions self-complete when their work is done, and progress tracking excludes housekeeping tasks so the number you see reflects real work. You opt out of automation selectively — per task or per mission — rather than opting in.
 
-## Auto-Merge on Green CI
+## Auto-Merge
 
 When an agent creates a PR, Buildd evaluates it for auto-merge once CI reports back.
 
@@ -19,7 +19,9 @@ When an agent creates a PR, Buildd evaluates it for auto-merge once CI reports b
   specific reason.
 </Callout>
 
-This is on by default for every workspace. When a PR does merge, it merges as a
+This is on by default: a workspace's merge policy starts at `auto-threshold`.
+To change it, pick `agent-review` or `human` under [Merge policy](#merge-policy).
+When a PR does merge, it merges as a
 **squash**, and a release is triggered automatically.
 
 ### What must pass before a merge
@@ -38,7 +40,7 @@ An eligible PR then has to clear every one of these:
 | Rail | Blocks when |
 |------|-------------|
 | **CI completeness** | Any check run is still `queued` or `in_progress`, or any concluded in `failure`. This rail **fails closed**: if the check-runs lookup itself errors, the merge is refused rather than allowed through unverified. |
-| **Protected paths** | Any changed file starts with one of the policy's deny paths. Migration and schema paths are the exception — they are routed to the migration classifier below instead of being blocked outright. |
+| **Risk classes** | A changed file falls in a risk class your policy sends to a reviewer or a person (see [Merge policy](#merge-policy)). Migrations are the exception: they go to the migration classifier below. |
 | **Migration classifier** | Runs **unconditionally** whenever the PR touches a generated migration or the schema file, whether or not those paths are in the deny list. Details below. |
 | **Diff size** | Non-generated source changes (additions + deletions) exceed the policy's line cap, which defaults to **800**. Drizzle snapshot metadata and lockfiles are excluded from the count. |
 | **Merge conflicts** | GitHub reports the PR as conflicting with its base branch. Rather than asking you, Buildd dispatches a same-branch conflict-retry task (on unless you disable auto-resolve for the workspace); it escalates to you only after the retry budget is exhausted. |
@@ -69,11 +71,41 @@ shape).
 It is deliberately conservative: **any statement it cannot parse is treated as
 CONTRACT**, so an unrecognised migration is held rather than merged.
 
+## Merge Policy
+
+The merge policy decides who ends a PR. Set it per workspace under
+**Settings → Workspaces → your workspace → Merge Policy**, or per mission with `mergePolicy`.
+
+| Tier | Who ends the PR |
+|------|-----------------|
+| `auto-threshold` (default) | Buildd, once every rail above passes |
+| `agent-review` | A reviewer agent. `approve` may merge, `request-changes` sends the PR back to the author (up to 3 rounds by default), `escalate` goes to a person |
+| `human` | A person. Nothing merges on its own |
+
+Precedence: `requiresReview` on the task, then the mission's policy, then the
+workspace's.
+
+On top of the tier, a preset assigns each **risk class** an action (`auto`,
+`agent-review` or `human`). A matched class can only raise the tier for that PR.
+
+| Risk class | Cautious | Balanced | Autonomous |
+|---|---|---|---|
+| `destructive_schema_change` | human | human | agent-review |
+| `auth_and_secrets` | human | agent-review | agent-review |
+| `ci_deploy_config` | human | agent-review | auto |
+| `public_api_contract` | human | agent-review | auto |
+| `dependency_bump` | agent-review | auto | auto |
+
+Buildd detects the paths for each class from your repo. You can't type path
+lists by hand: a write that includes them gets `400`. To refresh them, click
+**Re-scan repo** on the Merge Policy page, which shows the per-class diff
+before saving. `destructive_schema_change` fires only on a destructive
+(CONTRACT) migration, not on any change under a migrations folder.
+
 ### Disabling auto-merge
 
-To require human review of every agent PR in a workspace, clear **Auto-merge on green CI** under the workspace's **Git** configuration.
-
-This applies workspace-wide. To hold individual PRs instead, use `requiresReview` on the task (see below).
+To require a person for every agent PR in a workspace, set its merge policy tier
+to `human`. For one mission, set `mergePolicy: { tier: "human" }` on the mission.
 
 ## What a Reviewer Approval May Merge
 
@@ -148,12 +180,11 @@ The agent creates the PR as usual, but Buildd does not merge it.
 | Attempt | Result |
 |---------|--------|
 | `buildd action=create_task` with `requiresReview` | **Errors.** `create_task` rejects unknown parameters: `Unknown create_task parameter(s): requiresReview` |
-| `buildd action=update_task` with `requiresReview` | **Silently ignored.** `update_task` forwards only `title`, `description`, `priority`, `project`, `status`, `backend`, `maxLoops` |
+| `buildd action=update_task` with `requiresReview` | **Silently ignored.** `update_task` forwards only a fixed set of fields, and `requiresReview` is not one of them |
 | `PATCH /api/tasks/{id}` with `requiresReview` | **Silently ignored.** The handler does not read the field |
 
-To hold an already-created task, hold its PR instead — set the workspace or
-mission merge policy to `human` (below), or turn off **Auto-merge on green CI**
-for the workspace.
+To hold an already-created task, hold its PR instead: set the workspace or
+mission merge policy to `human`.
 
 ### On a mission
 
@@ -182,8 +213,6 @@ curl -X PATCH https://buildd.dev/api/missions/{id} \
   -d '{ "mergePolicy": { "tier": "human" } }'
 ```
 
-`requiresReview` on a mission also gates mission completion: the mission will not auto-close until you confirm it in the dashboard (see [Mission dormancy](#mission-dormancy--auto-complete) below).
-
 ## Mission Dormancy / Auto-Complete
 
 Missions monitor their own task health and close themselves when the work is done. You do not need to manually close a mission.
@@ -192,20 +221,14 @@ Missions monitor their own task health and close themselves when the work is don
 
 A mission is eligible to close when:
 
-1. All deliverable tasks are **completed** with merged PRs.
-2. No tasks are actively in progress.
+1. It produced deliverables (unless an agent proposed completion).
+2. No deliverable task is stalled on infrastructure, and every deliverable PR is merged.
+3. Its [goal criteria](/docs/features/missions) pass. A criterion that was never evaluated is not a pass.
+4. No visual review is pending. See [Visual Review](/docs/features/visual-review).
 
-When both conditions are true, the mission status transitions to `completed` and its [check-ins](/docs/features/check-ins) stop automatically.
-
-### requiresReview gate
-
-If the mission was created with `requiresReview: true`, auto-close is suspended. The mission enters a **dormant** state and waits for a human to confirm completion in the dashboard:
-
-1. Open the mission detail page.
-2. Review the completed tasks and merged PRs.
-3. Click **Close mission** to confirm.
-
-Until you confirm, check-ins continue, but they will not create new tasks.
+When all of these hold, the mission status moves to `completed` and its
+[check-ins](/docs/features/check-ins) stop. A mission whose work is done but whose
+criteria haven't passed stays active and shows as awaiting verification.
 
 ## Mission Progress (Deliverables Only)
 
@@ -233,9 +256,9 @@ Without this distinction, a single failed organizer run would drag a complete mi
 
 | Feature | Default | Override |
 |---------|---------|----------|
-| Auto-merge agent PRs (green CI **plus** safety rails) | On | Clear **Auto-merge on green CI** in the workspace Git config |
+| Auto-merge agent PRs (green CI **plus** safety rails) | On (`auto-threshold`) | Merge policy tier `agent-review` or `human`, per workspace or mission |
 | Release after merge | On | Workspace release config |
 | requiresReview (task) | Off | `requiresReview: true` on `POST /api/tasks` — create-time, REST only |
 | requiresReview (mission) | Off | `requiresReview: true` on `POST /api/missions`; afterwards, `mergePolicy: { tier: "human" }` on `PATCH /api/missions/{id}` |
-| Mission auto-complete | On | Suspended when `requiresReview: true` |
+| Mission auto-complete | On | Gated by goal criteria and visual review |
 | Progress % counts | Deliverables only | Not configurable |

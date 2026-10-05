@@ -178,7 +178,7 @@ The names still say "heartbeat". That is the internal name for check-ins.
 |-------|------|-------------|
 | `isHeartbeat` | boolean | Turn check-ins on or off. On by default for new auto missions. |
 | `heartbeatChecklist` | string | The Organizer checklist, as markdown |
-| `cronExpression` | string | Check-in schedule; defaults to `*/30 * * * *`. Check-ins run at most once an hour. |
+| `cronExpression` | string | Check-in schedule; defaults to `0 * * * *` (hourly). |
 | `activeHoursStart` | number | First hour (0–23) a check-in may run |
 | `activeHoursEnd` | number | Last hour (0–23) a check-in may run |
 | `activeHoursTimezone` | string | IANA timezone for the active-hours window |

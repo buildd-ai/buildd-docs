@@ -22,42 +22,23 @@ in a Slack thread, or bookmark a summary for later reference.
 
 ## Artifact Types
 
-### Types that work everywhere
+Every route and the `create_artifact` MCP action accept the same list:
 
-| Type | Purpose | Example |
-|------|---------|---------|
-| `content` | Rich markdown content — articles, documentation drafts, design specs | A blog post draft generated from research |
-| `report` | Structured analysis with findings and recommendations | Security audit results, performance benchmarks |
-| `data` | Structured data — JSON, CSV, or tabular output | API response analysis, metrics aggregation |
-| `link` | Curated external URL with context | A deployed preview URL, a relevant GitHub issue |
-| `summary` | Concise executive summary of work performed | Sprint recap, task completion digest |
-| `file` | An uploaded file; use `upload_artifact` rather than `create_artifact` | A screenshot, a CSV export |
-
-### Types accepted only at mission or initiative level
-
-| Type | Purpose |
+| Type | Use it for |
 |------|---------|
-| `analysis` | Deep-dive analysis with structured findings |
-| `recommendation` | Decision support with options and reasoning |
-
-These are accepted by `POST /api/missions/{id}/artifacts` and
-`POST /api/initiatives/{id}/artifacts`, but **rejected by the worker route** with
-`400 Invalid type`. Over MCP that means you must pass `missionId` or
-`initiativeId`; a plain worker-scoped `create_artifact` with `type: "analysis"`
-fails.
-
-### Types the MCP tool advertises but no route accepts
-
-<Callout type="warn">
-  `email_draft`, `social_post`, `alert` and `calendar_event` **cannot be
-  created**. The `create_artifact` MCP action validates against a list of twelve
-  types and then POSTs to a route whose allowlist is six (worker) or eight
-  (mission/initiative). These four are in neither, so the request returns
-  `400 Invalid type. Must be one of: …` after passing MCP validation.
-
-  There is no workaround short of using one of the working types above — `content`
-  for a draft, `report` for an alert write-up.
-</Callout>
+| `content` | Markdown: articles, doc drafts, design specs |
+| `report` | Findings and recommendations: audits, benchmarks |
+| `summary` | A short recap of work done |
+| `analysis` | A deep dive with structured findings |
+| `recommendation` | Options, reasoning and a pick |
+| `data` | JSON, CSV or tables |
+| `link` | An external URL with context |
+| `email_draft`, `social_post` | Drafts for a person to send |
+| `alert` | Something that needs attention |
+| `calendar_event` | A proposed event |
+| `impl_plan`, `walkthrough`, `diff` | Plans, walkthroughs and diffs from a task |
+| `screenshot`, `recording` | Captures from a task |
+| `file` | An uploaded file. Use `upload_artifact` instead of `create_artifact` |
 
 All types except `link` store their content directly in the `content` field. The `link` type requires a `url` parameter, stored in metadata, with optional `content` for descriptive context.
 
@@ -73,17 +54,6 @@ Templates provide JSON schemas for structured artifact output. Workers can disco
 | `decision_recommendation` | `recommendation` | `options` (array with name/pros/cons), `recommendation`, `reasoning` |
 | `content_draft` | `content` | `title`, `body`, `targetPlatform`, `metadata` |
 | `monitoring_alert` | `alert` | `severity` (critical/high/medium/low/info), `description`, `suggestedAction`, `source` |
-
-<Callout type="warn">
-  Two of these four templates cannot be used as-is:
-
-  - `monitoring_alert` declares `type: "alert"`, which **every** artifact route
-    rejects. Use its schema with `type: "report"` instead.
-  - `decision_recommendation` declares `type: "recommendation"`, which only the
-    mission and initiative routes accept — pass `missionId` or `initiativeId`.
-
-  `research_report` (`report`) and `content_draft` (`content`) work anywhere.
-</Callout>
 
 ### Discovering Templates
 
@@ -123,7 +93,7 @@ example when an upsert by `key` matched a previously shared artifact.
 | `workerId` | No | Auto-resolved from the active task context; pass it to override |
 | `missionId` | No | Create a mission-level artifact, with no worker context |
 | `initiativeId` | No | Create an initiative-level artifact, with no worker context |
-| `type` | Yes | See [Artifact Types](#artifact-types) — the MCP tool accepts twelve, but the routes accept six or eight |
+| `type` | Yes | See [Artifact Types](#artifact-types) |
 | `title` | Yes | Human-readable title for the artifact |
 | `content` | No | Markdown body, JSON data, or descriptive text |
 | `url` | No | Required for `link` type — the target URL |
@@ -207,9 +177,7 @@ curl -X POST https://buildd.dev/api/artifacts/{artifact-id}/share \
 { "shareUrl": "https://buildd.dev/share/xK9mP2qR7vLnW3..." }
 ```
 
-The token is a cryptographically random URL-safe string. It is generated once and
-reused if the artifact is shared again after being revoked, so a previously
-distributed link starts working again.
+The token is a random URL-safe string.
 
 Auth accepts either a logged-in dashboard user who is a member of the artifact's
 workspace, or an API key that owns the artifact (via its worker) or has workspace
@@ -277,7 +245,7 @@ The dashboard provides two views for browsing artifacts:
 
 Navigate to a workspace and click **Artifacts** in the header. This shows all artifacts produced by workers in that workspace, sorted by creation date (newest first). Each artifact displays its type, title, associated task, and a link to its share page.
 
-Artifacts of type `impl_plan` are filtered out of both gallery views, so you only see deliverable artifacts. No other type is hidden.
+Artifacts of type `impl_plan` are filtered out of both gallery views. The global view also hides by-product captures (screenshots, diffs and uploads) by default, unless they are public, have a `key`, or belong to a mission.
 
 ### Global Artifacts
 
@@ -356,6 +324,11 @@ Task: "Deploy feature branch to staging"
 | `POST` | `/api/artifacts/{id}/share` | API key or session | Make public; returns `shareUrl` |
 | `DELETE` | `/api/artifacts/{id}/share` | API key or session | Make private and null the token |
 | `GET` | `/api/share/{token}` | None (public) | Fetch artifact by share token — requires `visibility: public` |
+| `GET` | `/api/artifacts` | API key or session | List artifacts across your workspaces |
+| `GET`, `POST` | `/api/workspaces/{id}/artifacts` | API key or session | List or create workspace artifacts |
+| `GET` | `/api/missions/{id}/artifacts` | API key or session | List a mission's artifacts |
+| `POST` | `/api/artifacts/upload-url` | API key | Get a signed upload URL for a file artifact |
+| `GET` | `/api/artifacts/{id}/download` | Session, or none once public | Download a stored file |
 
 ### Create Artifact Request
 
@@ -367,7 +340,7 @@ Content-Type: application/json
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | Yes | `content`, `report`, `data`, `link`, `summary`, or `file` |
+| `type` | string | Yes | One of the [artifact types](#artifact-types) |
 | `title` | string | Yes | Display title |
 | `content` | string | No | Markdown, JSON, or plain text body |
 | `url` | string | No | Target URL (required for `link` type) |
@@ -376,7 +349,7 @@ Content-Type: application/json
 | `storageKey` | string | No | Existing object key for a stored file; must resolve inside the worker's own workspace prefix |
 
 **Validation rules:**
-- `type` must be one of the **six** types the worker route accepts (the mission and initiative routes add `analysis` and `recommendation`)
+- `type` must be one of the [artifact types](#artifact-types)
 - `title` is required and must be a string
 - `url` is required when `type` is `link`
 - a caller-supplied `storageKey` must belong to the worker's workspace, or the request is rejected with `400`
@@ -429,12 +402,7 @@ one already exists) or `Visibility: private (not shared)`.
   that needs to hand out a public link has to make that call itself.
 </Callout>
 
-<Callout type="warn">
-  `upload_artifact` is the one exception, and not a useful one. It mints a
-  `shareToken` for the new file row but leaves `visibility` at `private`, then
-  prints both a `Share URL:` and a `Download URL (permanent…)`. Neither works:
-  `/share/{token}` requires `visibility: public`, and the download route rejects a
-  token unless the artifact is public. Call
-  `POST /api/artifacts/{id}/share` on the returned `artifactId` before handing
-  either URL to anyone.
-</Callout>
+`upload_artifact` creates the file artifact as private and prints
+`Share URL: not shared — publish the artifact to mint one`. Workspace members
+can download it right away. Call `POST /api/artifacts/{id}/share` on the returned
+`artifactId` before you hand a link to anyone else.

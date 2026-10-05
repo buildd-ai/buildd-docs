@@ -37,7 +37,7 @@ no error anywhere to tell you. Hourly is the floor for any cadence you write.
 ### Via API
 
 Creating, editing or deleting a schedule requires an **admin-level** API key. A
-worker-level key gets `401`.
+non-admin key with workspace access gets `403`.
 
 ```bash
 curl -X POST https://buildd.dev/api/workspaces/{workspace-id}/schedules \
@@ -96,9 +96,11 @@ Those parse, but the hourly tick still bounds how often anything fires.
 
 ## Why a Schedule Might Not Fire
 
-A due schedule can be skipped without failing. These are the reasons, and each
-one writes `lastDeferralReason` on the schedule row so you can tell which
-applied.
+A due schedule can be skipped without failing. These are the reasons. Most
+write `lastDeferralReason` on the schedule row (for example `concurrent_cap`,
+`budget_exhausted` or `active_hours`). Two do not: a seat-limit deferral only
+moves `nextRunAt`, and a mission that is no longer active disables its schedule.
+A mission at its `maxConcurrentTasks` cap also skips the run.
 
 | Guard | Default | Behaviour |
 |---|---|---|

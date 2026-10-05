@@ -55,7 +55,7 @@ Database migrations must be reviewed before merging.
 
 ### CLAUDE.md Support
 
-When `useClaudeMd` is `true` (default when a `CLAUDE.md` file exists in the repo), the agent loads project instructions from `CLAUDE.md` automatically. This works via the `settingSources: ['project']` option in the Claude Agent SDK.
+When `useClaudeMd` is `true` (the default), the agent loads project instructions from `CLAUDE.md` automatically. This works via the `settingSources: ['project']` option in the Claude Agent SDK.
 
 ## Permission Bypass
 
@@ -130,12 +130,11 @@ effect at all.
 ## Writing Config: Two Endpoints, Two Behaviours
 
 <Callout type="warn">
-`POST /api/workspaces/{id}/config` is a **full-object replace**, not a patch. It
-rebuilds the git config from the request body and applies its own defaults to
-anything absent — so posting a single field resets `defaultBranch` to `main`,
-`branchingStrategy` to `feature`, `requiresPR` and `bypassPermissions` to
-`false`, and **drops every field it does not know about**. That includes backend
-selection, budget caps, sandbox policy, auto-merge rules and the rest.
+`POST /api/workspaces/{id}/config` is the dashboard form's endpoint. It keeps
+fields the form doesn't manage, but it resets every form field missing from the
+body to its default. Posting a single field resets `defaultBranch` to `main`,
+`branchingStrategy` to `feature`, and `requiresPR` and `bypassPermissions` to
+`false`.
 </Callout>
 
 To change one setting without disturbing the others, use
@@ -151,3 +150,22 @@ curl -X PATCH https://buildd.dev/api/workspaces/{workspace-id} \
 
 The dashboard form uses the `POST` route, which is correct there because the form
 submits every field it manages.
+
+## Task Webhook
+
+A workspace can send its tasks to your own endpoint instead of waking runners.
+Configure `webhookConfig` through `/api/workspaces/{id}/webhook`:
+
+| Field | Description |
+|-------|-------------|
+| `url` | Your endpoint. Buildd POSTs JSON to it |
+| `token` | Sent as `Authorization: Bearer <token>` |
+| `enabled` | Turns dispatch on or off |
+| `runnerPreference` | Optional. Only send tasks with this runner preference |
+| `events` | Optional. Which of `task.created`, `task.unblocked`, `task.retry`, `task.resume` and `task.scheduled` to receive. Unset means new and unblocked tasks only |
+
+<Callout type="warn">
+  Delivery is best-effort. Buildd makes one POST with a 10-second timeout and
+  doesn't retry. If your endpoint errors or times out, buildd wakes runners over
+  realtime instead. The task stays claimable, but your endpoint misses the event.
+</Callout>
