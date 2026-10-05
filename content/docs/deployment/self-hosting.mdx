@@ -202,7 +202,7 @@ Add entry:
 | `AUTH_URL` / `NEXTAUTH_URL` | Nothing breaks. `auth.ts` sets `trustHost: true`, so NextAuth infers the host from the request; every other read is a fallback chain ending in `http://localhost:3000`. `NEXTAUTH_URL` is checked first where both are read |
 | `PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER`, `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER` | Realtime dashboard updates are disabled; the Pusher client is `null` unless the set is complete |
 | `VOYAGE_API_KEY` | Semantic embedding and reranking are unavailable — knowledge retrieval degrades to a lexical-only fallback with no error |
-| `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_PRIVATE_KEY` (or `GITHUB_APP_PRIVATE_KEY_BASE64`) | The whole GitHub integration is off — `isGitHubAppConfigured()` is false, so no PR creation, no merges, no `repository_dispatch` |
+| `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_PRIVATE_KEY` (or `GITHUB_APP_PRIVATE_KEY_BASE64`) | The whole GitHub integration is off — `isGitHubAppConfigured()` is false, so no PR creation and no merges |
 | `GITHUB_APP_CLIENT_SECRET` | GitHub sign-in fails. There is no `AUTH_GITHUB_ID`/`AUTH_GITHUB_SECRET` — the GitHub App's OAuth credentials double as the login provider's |
 | `GITHUB_APP_WEBHOOK_SECRET` | **Fails open.** `verifyWebhookSignature()` logs a warning and returns `true`, so any unauthenticated caller can forge a GitHub webhook. Set it |
 | `GITHUB_APP_SLUG` | The install URL defaults to the `buildd` app slug — wrong for your own app |
