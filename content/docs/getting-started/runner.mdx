@@ -15,6 +15,7 @@ On macOS or Linux:
 
 ```bash
 curl -fsSL https://buildd.dev/install.sh | bash
+exec $SHELL
 buildd login
 buildd
 ```
@@ -30,7 +31,13 @@ The installer:
 - installs [Bun](https://bun.sh) if it is missing
 - puts the runner in `~/.buildd` and the `buildd` launcher in `~/.local/bin`
 - installs headless Chromium so agents can check their own UI work
-- asks whether to run buildd as a background service
+- adds `~/.local/bin` to your shell rc. That only takes effect in a new shell,
+  so `exec $SHELL` (or open a new terminal) before running `buildd`
+- if you are already logged in, asks whether to run buildd as a background
+  service. On a fresh machine it skips the question: a service with no account
+  does nothing until you log in
+- ends by printing the next steps: `buildd login` (or that you are already
+  logged in), then `buildd` or `buildd service install`
 
 It uses `sudo` only when that cannot prompt (you are root, or sudo is
 passwordless, and it says so first). Otherwise it skips the step and prints the
@@ -44,7 +51,9 @@ registers the service without asking.
 `buildd login --device` and approve the code from another device.
 
 `buildd` starts the runner in the foreground. To keep it running after you close
-the terminal and across reboots:
+the terminal and across reboots, run `buildd service install` instead. If you
+installed the service before logging in, run it again after `buildd login` so
+the service restarts with your account:
 
 ```bash
 buildd service install   # launchd on macOS, systemd --user on Linux
@@ -67,7 +76,9 @@ Other ways to give the runner its buildd key:
   route (`/auth/login`) and a `POST /api/config` endpoint.
 
 With no API key, a headless runner prints
-`No API key — run with --debug or set BUILDD_API_KEY` and does no work.
+`Not logged in — run buildd login (or set BUILDD_API_KEY), then start buildd again`
+and does no work. (Older runners print
+`No API key — run with --debug or set BUILDD_API_KEY` instead.)
 
 The launcher looks for your repos in `~/projects`, `~/dev`, `~/code`, `~/src`,
 `~/repos` and `~/work`, and falls back to your home directory. Set
