@@ -14,9 +14,11 @@ task's title or description never reach a worker that has already claimed it.
 1. An admin sends an instruction via the dashboard or the MCP server
 2. Delivery depends on priority:
    - **Normal** — the message is stored in the worker's `pendingInstructions` field and delivered on the worker's next `update_progress` call
-   - **Urgent** — the message is pushed to the running agent immediately and is *not* queued, so the same instruction is never processed twice
+   - **Urgent**: the message is pushed to the running agent immediately. On current runners it is also queued as a fallback, and the runner drops the duplicate. Older runners, and workers that have already finished, get the push only
 3. The worker reads and acts on the instruction
-4. The instruction is cleared from `pendingInstructions` and logged to `instructionHistory`
+4. The instruction leaves `pendingInstructions` once the runner confirms it injected that exact text, and is logged to `instructionHistory`
+
+A normal instruction to a worker that can't receive it (for example one in `error`) is rejected with `409`.
 
 ## Sending Instructions
 
@@ -40,9 +42,9 @@ buildd action=send_agent_message params={
 }
 ```
 
-`send_agent_message` is **admin-level**. A 401 on this action means your token
-lacks admin level, not that your session expired — verify with `list_schedules`,
-which is available at every token level, before re-authenticating.
+`send_agent_message` is **admin-level**. Over MCP, a token without admin level
+gets a `{"error":"forbidden","requiredLevel":"admin"}` result, not an expired
+session. The REST endpoint returns `401` to a non-admin key.
 
 Note that the MCP action is addressed by **`taskId`**, while the REST endpoint
 below is addressed by worker ID.
@@ -94,7 +96,7 @@ on the worker record:
 `delivered` (the worker received it). This history is visible in the dashboard
 for audit purposes.
 
-In workspaces marked as handling sensitive data, only `{ type, timestamp }` is
+In workspaces marked as handling sensitive data, only `{ type, timestamp, deliveryState, turnAtSend }` is
 retained — the message text is deliberately dropped from the history record.
 
 ## Worker Termination

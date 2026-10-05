@@ -1,6 +1,6 @@
 ---
 title: How Agents Access Your Repo
-description: What an agent run can do in your GitHub repository, which credential it uses, and how hosted and self-hosted runners differ
+description: What an agent run can do in your GitHub repository, which credential it uses, and how the cloud runner and self-hosted runners differ
 ---
 
 # How Agents Access Your Repo
@@ -50,11 +50,16 @@ Pull requests are opened through buildd (the `create_pr` action), not with a
 raw token. That way buildd's rules apply: which base branch a mission's PRs
 target, how duplicates are handled, and your workspace's merge policy.
 
-## Hosted vs self-hosted runners
+## Cloud runner vs self-hosted runner
+
+The cloud runner is a preview that you deploy to your own Cloudflare account
+(**Settings → Runners → Cloudflare**). It runs one container per task and uses an
+API key or agent model endpoint, never a subscription seat. Codex tasks don't
+run there yet.
 
 The run's token is the same in both cases. What differs is where it lives.
 
-| | Hosted runner (preview) | Self-hosted runner |
+| | Cloud runner on your Cloudflare account (preview) | Self-hosted runner |
 |---|---|---|
 | Where the agent runs | An isolated container per task | Your machine |
 | GitHub token | Never enters the container. buildd adds it to the container's GitHub requests on the way out | Written where the agent's `git` and `gh` read it, so the agent process can read it |
@@ -64,7 +69,7 @@ The run's token is the same in both cases. What differs is where it lives.
 | Merging through GitHub's merge API | Refused. Merges go through buildd's merge policy | Not refused by buildd |
 | buildd credential inside the run | A token for this one task, usable only on that task's routes | The runner's API key |
 
-On a hosted runner, the agent can do its work without ever holding a broad
+On the cloud runner, the agent can do its work without ever holding a broad
 credential. If its container is compromised, there is no GitHub or model secret
 inside to steal.
 

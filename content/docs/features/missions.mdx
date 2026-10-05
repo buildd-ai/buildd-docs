@@ -73,8 +73,9 @@ buildd action=manage_missions params={
 }
 ```
 
-IDs are full UUIDs. The dashboard displays 8-character prefixes, which the API
-rejects — take the full ID from the task URL or an API response.
+Task IDs are full UUIDs. The dashboard displays 8-character prefixes, which the
+API rejects, so take the full ID from the task URL or an API response.
+`missionId` on `manage_missions` also accepts the mission's title.
 
 ### Auto-Inheritance
 
@@ -186,12 +187,12 @@ buildd action=manage_missions params={
 | `no_open_tasks` | Database state |
 | `artifact_exists` | Database state |
 | `description` | Prose graded by a model |
-| `metric` | Nothing — no evaluator exists yet |
 
 Two traps worth knowing:
 
 - `description` needs a model reachable at the moment a verdict is owed. When one isn't, it degrades to *not evaluated*, which never counts as a pass. Because of that it requires a `notMechanizableReason` of at least 10 characters explaining why no mechanical form fits; writes without it are rejected.
-- `metric` has **no evaluator**, so it stays unverified and blocks completion forever. Do not use it as a gate.
+- A non-empty criteria list needs at least one mechanical criterion (`command`, `all_prs_merged`, `no_open_tasks` or `artifact_exists`). A list of only `description` criteria is rejected with `400`.
+- `metric` criteria are rejected on write because nothing evaluates them. An older mission that already stores one keeps it, and it blocks completion until removed.
 
 Criteria are evaluated automatically unless you set `autoVerify: false`, and
 evaluation also fires when all of a mission's tasks are done. You can also
@@ -274,13 +275,16 @@ hardcoded model name:
 | `budget` | Lightweight planning and triage |
 | `standard` | Balanced planning and execution |
 | `premium` | Complex reasoning and execution |
+| `premium-plus` | Opt-in only. Nothing routes here unless you ask for it |
 
 Exact model IDs still work for pinning, and legacy shorthands are still accepted,
 but tier-first routing survives model upgrades.
 
 Missions can also carry `skillSlugs` to attach [skills](/docs/features/skills) to
-every task they spawn, and `backend` (`claude` or `codex`) to set the default
-agent engine.
+every task they spawn. Over REST, a mission also takes `backend` (`claude` or
+`codex`) for the default agent engine, `mergePolicy` (see
+[Autonomous Workflow](/docs/features/autonomous)) and `requiresReview`. The MCP
+`manage_missions` action does not forward those three yet.
 
 ## Managing via MCP
 

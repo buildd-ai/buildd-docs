@@ -46,7 +46,7 @@ buildd login
 Restart Claude Code and the buildd tools will be available.
 
 <Callout type="info">
-Get your API key from the [Buildd dashboard](https://app.buildd.dev) under Accounts.
+`buildd login` creates a key for you. To make one by hand, go to **Settings → Runners → Runner tokens** in the [dashboard](https://buildd.dev/app).
 </Callout>
 
 ## Workspace Detection
@@ -58,7 +58,10 @@ The MCP server resolves the workspace from the URL:
 3. `workspaceId` in tool params (per-action override)
 4. No filter — operations that require a workspace will prompt for `workspaceId`
 
-When using `buildd init <workspace-id>`, the workspace is baked into the MCP URL automatically.
+When using `buildd init <workspace-id>`, the workspace is baked into the MCP URL automatically. `buildd install --global` registers the server in `~/.claude.json` for every Claude Code session, and `buildd login` does the same unless you pass `--no-mcp`.
+
+claude.ai and other MCP clients that sign in with OAuth connect to a
+workspace-scoped endpoint, `/api/mcp-oauth/<workspace-id>`.
 
 ## Tools
 

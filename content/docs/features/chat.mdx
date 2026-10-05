@@ -10,6 +10,15 @@ been doing, work out an approach to something you haven't filed yet, then say
 "make this a mission" or "run it daily" — asking and filing work happen in the
 same place, without translating the answer into a form.
 
+## What pays for chat
+
+Chat runs inside buildd, on your team's model **API key** (Anthropic, OpenAI,
+OpenRouter or your LiteLLM gateway). It never uses a subscription seat or a
+runner. With no key, the chat page says who can add one. Spend is capped at
+$20/day for the team by default, with a per-person cap of half that. Admins see
+spend under **Team → Budgets**. See
+[How Buildd Runs AI](/docs/concepts/how-buildd-runs-ai#budgets).
+
 ## Scope: your workspaces, routed per turn
 
 A new conversation covers every workspace you can reach. On each turn, buildd

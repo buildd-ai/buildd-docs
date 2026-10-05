@@ -39,6 +39,15 @@ from the advertised `action` enum, and the handler rejects them again with
 `{"error":"forbidden", …}`. See [MCP Server](/docs/integrations/mcp-server#buildd--task-coordination)
 for the per-level action lists.
 
+### Scoped tokens
+
+New API tokens can carry explicit **scopes** instead of a bare level, for example
+`tasks:read`, `tasks:write`, `workers:write`, `missions:admin`, `secrets` or
+`admin`, chosen from the runner, CI, analytics and admin presets. REST and MCP
+enforce the same scopes. A token can also be limited to a list of workspaces; a
+workspace limit never widens what the team allows. Tokens without scopes keep the
+level behaviour above.
+
 <Callout type="warn">
   The default level depends on **which route mints the key**, and they disagree:
 

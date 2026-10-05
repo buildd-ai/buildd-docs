@@ -57,20 +57,16 @@ POST /api/auth/device/code
   **Omitting `level` produces an `admin` key.** The endpoint accepts only the
   literal strings `"worker"` and `"trigger"`; every other input — the field
   missing, `null`, `"Worker"`, `"ADMIN"`, a typo — falls through to `admin`. The
-  `device_codes.level` column defaults to `admin` as well. Always pass `level`
-  explicitly, and pass it lowercase.
+  `device_codes.level` column defaults to `admin` as well. Approval then clamps
+  the level to the approver's team role: a member's approval yields at most
+  `worker`. Always pass `level` explicitly, and pass it lowercase.
 </Callout>
 
-The approval flow creates or updates a named account for the user's team with the
-requested level, matching on `(team, account name)`.
-
-<Callout type="warn">
-  Approval **overwrites the level of an existing account with the same name**. If
-  a `worker`-level account named `Runner` already exists in the team and someone
-  completes a device flow with `clientName: "Runner"` and no `level`, that
-  account's API key is rotated *and* it is promoted to `admin`. Use a distinct
-  `clientName` per credential, and always set `level`.
-</Callout>
+Approval always creates a new account in the approver's team. It never rotates
+or changes an existing account with the same name. The level is the requested
+one, capped by the approver's role: members can approve up to `worker`, owners
+and admins up to `admin`. The new account is linked to the approver's
+workspaces. An approver who is not a member of the team gets `403`.
 
 ## Security
 

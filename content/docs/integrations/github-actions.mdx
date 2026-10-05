@@ -1,11 +1,20 @@
 ---
 title: GitHub Actions
-description: Run buildd tasks as CI workers using GitHub Actions and Claude Code
+description: Claim buildd tasks from a GitHub Actions workflow you trigger yourself
 ---
 
 # GitHub Actions
 
-Run buildd tasks automatically on GitHub Actions. When a task is created, buildd dispatches a `repository_dispatch` event to your repo, triggering a workflow that uses `claude-code-action@v1` with the buildd MCP server.
+<Callout type="warn">
+  Buildd no longer starts GitHub Actions workflows. It used to send a
+  `repository_dispatch` event when a task was created, and it doesn't anymore.
+  For tasks that start on their own, use a
+  [runner](/docs/getting-started/runner).
+</Callout>
+
+A workflow you trigger yourself (on a schedule, or by hand) can still claim and
+work buildd tasks, because it talks to buildd through the MCP server like any
+other client. This page shows how.
 
 ## Prerequisites
 
@@ -21,8 +30,9 @@ Add this workflow file to your repository at `.github/workflows/buildd-worker.ym
 ```yaml
 name: Buildd Worker
 on:
-  repository_dispatch:
-    types: [buildd-task]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 * * * *'
 
 permissions:
   contents: write
@@ -40,13 +50,12 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
             You are a buildd CI worker. Use the buildd MCP tools to:
-            1. Claim a pending task (the dispatched task_id is: ${{ github.event.client_payload.task_id }})
+            1. Claim a pending task from the workspace
             2. Read the task details and do the work
             3. Commit and push your changes
             4. Create a PR via buildd MCP (create_pr action)
             5. Mark the task complete (complete_task action)
 
-            Workspace: ${{ github.event.client_payload.workspace_id }}
           claude_args: |
             --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
             --allowedTools mcp__buildd__buildd,mcp__buildd__recall,mcp__buildd__learn,mcp__buildd__check_path_claim,Bash,Read,Write,Edit,Glob,Grep
@@ -71,12 +80,12 @@ jobs:
 
 ## How It Works
 
-1. **Task created** in buildd (dashboard, API, or GitHub issue with `buildd` label)
-2. **Buildd sends** a `repository_dispatch` event to the linked GitHub repo
-3. **GitHub Actions** triggers the workflow
-4. **`claude-code-action`** runs with the buildd MCP server connected
-5. **Agent claims** the task, does the work, creates a PR, and reports completion
-6. **Task status** updates in real-time on the buildd dashboard
+1. **Your trigger** (the schedule or a manual run) starts the workflow
+2. **`claude-code-action`** runs with the buildd MCP server connected
+3. **The agent claims** a pending task, does the work, creates a PR, and reports completion
+4. **Task status** updates live on the buildd dashboard
+
+If nothing is pending, the run claims nothing and ends.
 
 ## Secrets Setup
 
@@ -113,17 +122,6 @@ jobs:
             --mcp-config '{"mcpServers":{"buildd":{"type":"http","url":"https://buildd.dev/api/mcp","headers":{"Authorization":"Bearer ${{ secrets.BUILDD_API_KEY }}"}}}}'
             --allowedTools mcp__buildd__buildd,mcp__buildd__recall,mcp__buildd__learn,mcp__buildd__check_path_claim,Bash,Read,Write,Edit,Glob,Grep
 ```
-
-## Dispatch Triggers
-
-The `repository_dispatch` event fires automatically when:
-
-- A task is created via the dashboard
-- A GitHub issue with the `buildd` or `ai` label is opened
-- A task is created via the API
-- A scheduled task fires
-
-The dispatch only fires if no local runner or webhook handler claims the task first. It serves as the fallback in the dispatch chain.
 
 ## Customization
 

@@ -21,17 +21,13 @@ defaults to `execution`.
 
 ## How Planning Tasks Get Created
 
-<Callout type="warn">
-You cannot create a planning task directly, by either public write path.
-`POST /api/tasks` accepts a `mode` field in the request body but never reads it —
-it hardcodes `mode: 'execution'` on insert, so passing `"mode": "planning"` is
-silently ignored. The MCP `create_task` action is stricter: `mode` is absent from
-its parameter allowlist, so passing it fails loudly with
-`Unknown create_task parameter(s): mode`.
-</Callout>
+To create a planning task yourself, pass `emitsPlan: true` to `POST /api/tasks`
+or the MCP `create_task` action. The task needs a non-empty `pathManifest` that
+names the spec doc. Buildd creates it with `mode: 'planning'` and requires plan
+approval. Passing `mode` directly does not work: `POST /api/tasks` ignores it,
+and `create_task` rejects it with `Unknown create_task parameter(s): mode`.
 
-Planning tasks are created by the orchestration layer instead. These are the
-paths that produce one:
+The orchestration layer also creates planning tasks on these paths:
 
 | Trigger | What creates the planning task |
 |---|---|

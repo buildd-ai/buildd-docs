@@ -1,0 +1,37 @@
+---
+title: ai-kit
+description: The npm package for apps that use buildd's model tiers, spend limits and Jev decisions
+---
+
+# ai-kit
+
+[`@builddai/ai-kit`](https://www.npmjs.com/package/@builddai/ai-kit) is for apps
+of your own that want buildd to pick the model and decide whether a call may
+spend. Your app makes the call with its own provider key and sends buildd a
+usage record with no prompt or reply in it.
+
+```bash
+npm i -E @builddai/ai-kit
+```
+
+Pin an exact version. A new Jev model or a contract change ships as a new
+release, so re-run your evals before you upgrade.
+
+| Import | What it gives you |
+|---|---|
+| `@builddai/ai-kit/models` | Ask buildd for a model plan for a tier, then record usage |
+| `@builddai/ai-kit/policy` | Tier to provider and model, locally, with an optional remote policy |
+| `@builddai/ai-kit/decide` | Jev decisions: typed questions with confidence gating |
+| `@builddai/ai-kit/chat/*` | Chat contract, server turn runner, React components and theme |
+
+The client authenticates with a buildd API key (`bld_…`) for the app's service
+account. The full API and examples live in the
+[package README](https://github.com/buildd-ai/buildd/tree/dev/packages/ai-kit#readme).
+
+## Licences
+
+- `@builddai/ai-kit` is Apache-2.0.
+- Buildd itself ([buildd-ai/buildd](https://github.com/buildd-ai/buildd)) is
+  under the Functional Source License (FSL-1.1-ALv2). Each release becomes
+  Apache-2.0 two years after it ships.
+- These docs are MIT.

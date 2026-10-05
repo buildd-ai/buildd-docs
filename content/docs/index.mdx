@@ -5,16 +5,33 @@ description: Task coordination for AI coding agents
 
 # Welcome to Buildd
 
-Buildd is a **task coordination system** for AI coding agents. It enables you to:
+Buildd coordinates AI coding agents. You set a goal, agents break it into tasks,
+your runners do the work, and you get PRs, artifacts and research back.
 
-- Create and manage coding missions through a web dashboard or API
-- Let external AI workers claim and execute missions
-- Track progress in realtime with detailed status updates
-- Integrate with Claude Code via MCP server
+- Create missions and tasks from the dashboard, chat, the API or MCP
+- Runners you control claim tasks and run Claude Code or Codex
+- Watch progress live, and decide what merges with a merge policy
+- Agents share a built-in team memory through `recall` and `learn`
+
+## Pricing
+
+Buildd is free while in beta. You bring your own model key: Anthropic,
+OpenRouter or your LiteLLM gateway, plus OpenAI for Codex tasks. A runner that
+buildd hosts for you is coming soon at $20/month.
+
+## Get started
+
+```bash
+curl -fsSL https://buildd.dev/install.sh | bash
+buildd login
+buildd
+```
+
+See [Runner Setup](/docs/getting-started/runner) for what each step does.
 
 ## Quick Links
 
-- [Runner Setup](/docs/getting-started/runner) - Run missions locally with a standalone worker
+- [Runner Setup](/docs/getting-started/runner) - Install a runner and give it a model credential
 - [How Buildd Runs AI](/docs/concepts/how-buildd-runs-ai) - Server-side calls vs runner agent runs, keys, billing and model tiers
 - [Missions](/docs/features/missions) - Goals that group tasks, track progress, and gate their own completion
 - [MCP Server](/docs/integrations/mcp-server) - Claude Code integration

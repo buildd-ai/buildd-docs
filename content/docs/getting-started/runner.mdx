@@ -1,44 +1,102 @@
 ---
 title: Runner Setup
-description: Run tasks locally with a standalone worker that connects to buildd.dev
+description: Install a runner, sign it in, and give it a model credential
 ---
 
 # Runner Setup
 
-The Runner is a standalone worker that connects to buildd.dev. It runs on your machine (or a remote workspace like Coder) and executes tasks using the Claude Agent SDK.
+A runner is the process that does the work. It runs on your machine, a build box
+or a remote workspace, claims tasks from buildd.dev, runs the agent in a worktree
+and opens the PRs. It only connects out to buildd, so nothing has to reach in.
 
-## Prerequisites
+## Install
 
-- [Bun](https://bun.sh) runtime
-- A buildd.dev account with an API key
-
-## Quick Start
+On macOS or Linux:
 
 ```bash
-cd apps/runner
-bun install
-BUILDD_API_KEY=bld_xxx PROJECTS_ROOT=~/projects bun start
+curl -fsSL https://buildd.dev/install.sh | bash
+buildd login
+buildd
+```
+
+On Windows (PowerShell):
+
+```powershell
+irm buildd.dev/install.ps1 | iex
+```
+
+The installer:
+
+- installs [Bun](https://bun.sh) if it is missing
+- puts the runner in `~/.buildd` and the `buildd` launcher in `~/.local/bin`
+- installs headless Chromium so agents can check their own UI work
+- asks whether to run buildd as a background service
+
+It uses `sudo` only when that cannot prompt (you are root, or sudo is
+passwordless, and it says so first). Otherwise it skips the step and prints the
+command to run yourself. Set `BUILDD_NO_SUDO=1` to skip sudo entirely. For a
+scripted install, `curl -fsSL https://buildd.dev/install.sh | bash -s -- --service`
+registers the service without asking.
+
+`buildd login` signs you in through the browser and saves an API key to
+`~/.buildd/config.json`. It also registers the buildd MCP server in
+`~/.claude.json` (skip that with `--no-mcp`). On a machine with no browser, use
+`buildd login --device` and approve the code from another device.
+
+`buildd` starts the runner in the foreground. To keep it running after you close
+the terminal and across reboots:
+
+```bash
+buildd service install   # launchd on macOS, systemd --user on Linux
+buildd service status
+buildd service logs
+buildd service uninstall
 ```
 
 <Callout type="warn">
-  **The runner is headless by default — there is no web UI to open.** It starts an
-  HTTP server only when you pass `--debug` or set `PORT`. Without one of those,
-  nothing is listening on port 8766 and `http://localhost:8766` will not connect.
+  **The runner is headless by default.** It starts an HTTP server only when you
+  pass `--debug` or set `PORT`. Without one of those, nothing listens on port
+  8766 and `http://localhost:8766` will not connect.
 </Callout>
 
-Configure it in one of three ways:
+Other ways to give the runner its buildd key:
 
-- **`BUILDD_API_KEY` env var** — the simplest path, and it takes priority over the config file.
-- **`buildd login`** — writes `apiKey` (and `builddServer`) into `~/.buildd/config.json`.
-- **`bun start --debug`** — starts the debug HTTP server on port 8766, which exposes an
-  OAuth login route (`/auth/login`) and a `POST /api/config` endpoint. Only in this mode
-  does opening `http://localhost:8766` do anything.
+- **`BUILDD_API_KEY` env var.** Takes priority over the config file. Useful in CI
+  and containers.
+- **`buildd --debug`.** Starts the debug server on port 8766, which has a sign-in
+  route (`/auth/login`) and a `POST /api/config` endpoint.
 
-With no API key and no `serverless` flag, a headless runner prints
+With no API key, a headless runner prints
 `No API key — run with --debug or set BUILDD_API_KEY` and does no work.
 
-`PROJECTS_ROOT` is effectively mandatory: the runner exits at startup if it
+The launcher looks for your repos in `~/projects`, `~/dev`, `~/code`, `~/src`,
+`~/repos` and `~/work`, and falls back to your home directory. Set
+`PROJECTS_ROOT` (comma-separated) to choose. The runner exits at startup if it
 cannot resolve at least one project root.
+
+## Model credentials
+
+The runner needs a model credential for the agent it runs. Pick one:
+
+| You have | Set it up |
+|---|---|
+| A Claude subscription | Run `claude login` on the runner machine, or set `CLAUDE_CODE_OAUTH_TOKEN` in the runner's environment. The seat stays on that machine |
+| An Anthropic API key | Store it as a team secret in buildd, or set `ANTHROPIC_API_KEY` on the runner |
+| OpenRouter or a LiteLLM gateway | Set an agent model endpoint under **Connections → Model providers**, or set `llmProvider` / `LLM_PROVIDER` on the runner |
+| An OpenAI key, for Codex tasks | See [Codex Backend](/docs/getting-started/codex-backend) |
+
+A key or token already in the runner's environment wins over the one buildd
+stores. A team agent model endpoint replaces both, and a per-machine
+`LLM_PROVIDER` wins over the endpoint. See
+[How Buildd Runs AI](/docs/concepts/how-buildd-runs-ai) for the full picture.
+
+## Where runners run
+
+| Where | Status |
+|---|---|
+| Your machines (laptop, build box, server) | Available. This page |
+| Your own Cloudflare account, one container per task | Preview. API key only, no subscription seat |
+| A runner buildd hosts for you | Coming soon, $20/month. You still bring your own model key |
 
 ## Configuration
 
@@ -51,7 +109,7 @@ with `BUILDD_CONFIG`, and the containing directory with `BUILDD_HOME`.
 |-------|------|---------|-------------|
 | `apiKey` | string | — | Buildd API key (`bld_xxx`) |
 | `serverless` | boolean | `false` | Run without an API key; forced to `false` whenever a key resolves |
-| `model` | string | `claude-sonnet-4-6` | Model to use (the `standard` tier default) |
+| `model` | string | the `standard` tier default | Model to use. Leave it unset to follow your team's tier mapping |
 | `maxConcurrent` | number | `3` | Max concurrent workers |
 | `acceptRemoteTasks` | boolean | `true` | Accept task assignments from the dashboard |
 | `bypassPermissions` | boolean | `false` | Skip permission prompts (dangerous commands still blocked) |

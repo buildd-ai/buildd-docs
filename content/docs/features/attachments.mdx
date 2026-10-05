@@ -119,7 +119,8 @@ access to the `workspaceId` it names; otherwise the request returns `403`.
 
 Object storage must be configured on the server — `STORAGE_ENDPOINT`,
 `STORAGE_ACCESS_KEY` and `STORAGE_SECRET_KEY` at minimum, plus
-`STORAGE_BUCKET`, `STORAGE_REGION` and `STORAGE_PUBLIC_URL` as needed. The
+`STORAGE_BUCKET` (default `buildd-artifacts`) and `STORAGE_REGION` (default
+`auto`) as needed. The
 endpoint returns `503` when the first three are absent. Note that
 `STORAGE_BUCKET` is *not* part of that readiness check, so a wrong bucket name
 passes the gate and fails later at upload time.

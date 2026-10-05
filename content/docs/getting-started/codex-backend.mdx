@@ -1,66 +1,50 @@
 ---
 title: Codex Backend
-description: Run tasks on ChatGPT plan quota using the Codex backend instead of the Anthropic API
+description: Run tasks with OpenAI's Codex agent on your ChatGPT plan or an OpenAI API key
 ---
 
 # Codex Backend
 
-The Codex backend lets workers execute tasks using your **ChatGPT plan quota** instead of paying per-token on the Anthropic API. When a task has `backend: codex` set, the runner routes it through OpenAI's Codex agent (backed by GPT-4o and o3) instead of Claude.
+The Codex backend runs a task through OpenAI's Codex agent instead of Claude.
+Set `backend: codex` on a task, a role or the workspace. It runs on your
+**ChatGPT plan** or on an **OpenAI API key**.
 
-Use this when:
-- Your team has an active ChatGPT Plus/Pro/Team/Enterprise plan and wants to use that quota for engineering tasks
-- You want to reduce Anthropic API costs by routing some workloads through your existing OpenAI subscription
-- Tasks are suitable for GPT-4o or o3 (research, code generation, analysis)
+## Setup
 
-## One-Time Setup
+Open **Settings → Connections → Runners** and find the Codex card. Pick one:
 
-Connecting your Codex account takes about two minutes and happens entirely in the Buildd UI — no file management or server configuration needed.
+| Option | How |
+|---|---|
+| **Sign in with device code** (recommended) | Click it, open the link, sign in with the account that holds your ChatGPT plan, and approve the code |
+| **Paste auth.json** | Run `codex login --device-auth` on any machine, then paste the contents of `~/.codex/auth.json` |
+| **OpenAI API key** | Paste the key into the OpenAI API key card. You pay per token |
 
-### 1. Get your auth.json
+A runner can also use its own credentials: an `auth.json` in its `CODEX_HOME`,
+or `OPENAI_API_KEY` in its environment. A team agent model endpoint that speaks
+the OpenAI API (a LiteLLM gateway or OpenRouter) also serves Codex tasks. See
+[How Buildd Runs AI](/docs/concepts/how-buildd-runs-ai).
 
-On any machine with the Codex CLI installed, run the device-code login flow:
-
-```bash
-codex login --device-auth
-```
-
-Follow the prompted URL, sign in with the account that holds your ChatGPT plan, and approve the device. The CLI writes credentials to `~/.codex/auth.json`. Copy the **full contents** of that file (it's a JSON object with `access_token`, `refresh_token`, `account_id`, and `expires_in`).
-
-### 2. Paste into Settings
-
-1. Open **Buildd** → **Settings** → **Connections** → **Runners**
-2. Find your runner and click **Add Credential**
-3. Select **Codex** from the provider dropdown
-4. Paste the `auth.json` contents into the text field
-5. Click **Connect**
-
-Buildd stores the tokens encrypted in its database. The status indicator changes to **Connected** immediately.
-
-That's it. No `CODEX_HOME` to configure, no files to mount. Runners receive the credential automatically at task claim time and clean it up after the task exits.
+A stored credential covers the whole team by default. You can narrow it to one
+workspace.
 
 ## Token Refresh
 
-Buildd refreshes your Codex tokens automatically before they expire. The refresh runs server-side using a rotation guard that prevents concurrent refresh races. If a refresh fails, the status changes to **Expired** and a banner appears in the runner's credential panel — paste a fresh `auth.json` to reconnect.
-
-You can also trigger a manual refresh by clicking **Refresh token** next to the Codex credential in Settings → Connections → Runners.
-
-## Disconnecting
-
-To remove the credential, click **Disconnect** next to the Codex credential in Settings → Connections → Runners. This deletes the encrypted tokens from the database immediately. Any in-flight Codex tasks will complete using the tokens they received at claim time.
+Buildd refreshes your Codex tokens before they expire. If a refresh fails, the
+card shows **Expired**. Use **Refresh now**, **Re-auth via device login** or
+**Paste auth.json** to reconnect, and **Verify** to check it against OpenAI.
+**Revoke** deletes the stored tokens. Codex tasks already running finish on the
+tokens they received at claim time.
 
 ## Security
 
-Buildd encrypts tokens at rest using AES-256-GCM (the same key used for all other workspace secrets). Tokens are:
-
-- **Never logged** — only the workspace ID and last-refreshed timestamp appear in server logs
-- **Scoped to your workspace** — no other workspace can access your credential, even within the same team
-- **Short-lived in the runner** — the runner writes tokens to a temp directory (`mode 0700`, auth.json `mode 0600`) for the duration of one task, then deletes it in a `finally` block
-
-You do not need to manually handle `auth.json` files on your runner machines.
+Buildd encrypts tokens at rest with AES-256-GCM, the same as every other secret,
+and never logs them. On the runner, the `auth.json` lives in a per-worker
+`CODEX_HOME` (`mode 0700`, file `mode 0600`) that the runner removes when the
+worker is torn down.
 
 ## Concurrent Execution
 
-Codex tasks are **automatically serialized** — only one Codex task runs at a time per workspace. This is enforced by the runner and requires no configuration.
+Codex tasks are **automatically serialized**: only one Codex task runs at a time per workspace. Buildd enforces this at claim time, with the runner as a backstop. No configuration needed.
 
 The limit exists because ChatGPT plans have a **5-hour rolling usage window**. Running multiple tasks in parallel would exhaust the window faster without completing more work. Serializing tasks keeps throughput predictable and avoids mid-task quota failures.
 
@@ -75,6 +59,6 @@ The Codex backend applies a sandbox policy based on task type:
 | Research / analysis | `read-only` | Can read files, cannot write or run commands |
 | Engineering / code | `workspace-write` | Can read and write within the workspace directory |
 
-The sandbox mode is chosen automatically from the task's category. You can override it by setting `sandboxMode` in the task's metadata if your workflow requires a different policy.
+Buildd picks the sandbox from the task's `kind`: `research`, `analysis` and `observation` get `read-only`. Override it with `context.sandboxMode` on the task.
 
 Read-only mode is appropriate for tasks that only need to inspect the codebase or external data. Workspace-write mode is required for tasks that modify files, run builds, or apply patches.
