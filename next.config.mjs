@@ -46,6 +46,10 @@ const retiredFeatureRedirects = [
   // Mission "heartbeats" were renamed to "check-ins" when missions moved to
   // planning as soon as work finishes; the check-in is now only a stuck-check.
   ['/docs/features/heartbeat', '/docs/features/check-ins'],
+  // GitHub Actions as a runner (repository_dispatch + claude-code-action) was
+  // removed. Runners on your machine, a VM or your own Cloudflare account are
+  // the supported ways to execute tasks.
+  ['/docs/integrations/github-actions', '/docs/getting-started/runner'],
 ].map(([source, destination]) => ({ source, destination, permanent: true }));
 
 /** @type {import('next').NextConfig} */
