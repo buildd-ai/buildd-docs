@@ -46,6 +46,13 @@ curl -X POST https://buildd.dev/api/missions \
   -d '{ "title": "Improve API response times" }'
 ```
 
+### Branch strategy
+
+New missions default to `mission-branch`: task PRs merge into one mission branch,
+which reaches trunk through a single mission PR. `direct` is the opt-out, set per
+workspace (`gitConfig.branchStrategy`) or per mission at creation. See
+[Mission Branches](/docs/features/mission-branches).
+
 ## Linking Tasks
 
 Tasks link to a mission on creation, by linking an existing task, or

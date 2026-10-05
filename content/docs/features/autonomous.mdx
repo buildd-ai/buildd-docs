@@ -7,7 +7,7 @@ description: Auto-merge, merge policies and review agents, requiresReview opt-in
 
 Buildd is autonomous by default. Agent PRs merge automatically once green CI **and** a set of safety rails all pass, missions self-complete when their work is done, and progress tracking excludes housekeeping tasks so the number you see reflects real work. You opt out of automation selectively — per task or per mission — rather than opting in.
 
-## Auto-Merge on Green CI
+## Auto-Merge
 
 When an agent creates a PR, Buildd evaluates it for auto-merge once CI reports back.
 
@@ -19,7 +19,9 @@ When an agent creates a PR, Buildd evaluates it for auto-merge once CI reports b
   specific reason.
 </Callout>
 
-This is on by default for every workspace. When a PR does merge, it merges as a
+This is on by default: a workspace's merge policy starts at `auto-threshold`.
+To change it, pick `agent-review` or `human` under [Merge policy](#merge-policy).
+When a PR does merge, it merges as a
 **squash**, and a release is triggered automatically.
 
 ### What must pass before a merge
@@ -104,12 +106,6 @@ before saving. `destructive_schema_change` fires only on a destructive
 
 To require a person for every agent PR in a workspace, set its merge policy tier
 to `human`. For one mission, set `mergePolicy: { tier: "human" }` on the mission.
-
-<Callout type="warn">
-  The **Auto-merge on green CI** checkbox in the workspace's Git configuration is
-  a legacy setting. The merge gate no longer reads it, so clearing it does not
-  stop merges. Use the merge policy instead.
-</Callout>
 
 ## What a Reviewer Approval May Merge
 
