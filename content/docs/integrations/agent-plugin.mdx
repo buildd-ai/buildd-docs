@@ -1,0 +1,116 @@
+---
+title: Agent Plugin
+description: Show your own Claude Code, Codex or Cursor session in buildd, and release its task cleanly when you close it
+---
+
+# Agent Plugin
+
+The buildd agent plugin makes your own interactive coding session (Claude Code,
+Codex or Cursor) visible in buildd from the moment it opens. It bundles the
+[MCP server](/docs/integrations/mcp-server), a short session skill, and
+lifecycle hooks.
+
+The MCP server still does all the work: claiming, progress, notes, PRs and
+completion go through the `buildd` tool exactly as before. The hooks only tell
+buildd that the session exists.
+
+## What you get
+
+- **Presence without a slot.** An open session shows under **Activity →
+  Interactive sessions** as Working, Online, Offline or Ended, with its client
+  and repo. Presence never counts against your agent capacity. A scripted run
+  nobody is attending (`claude -p`, an SDK script, a Cursor background agent)
+  isn't listed unless it claims a task.
+- **Claims tie to the session.** When your session calls `claim_task`, buildd
+  links the session to the worker that claim created. The task then shows the
+  client it runs in (for example "Claude Code · local") where a runner name
+  would appear.
+- **Closing the session releases the task.** Exiting a session releases its
+  worker once. An unfinished task goes back to the queue. Nothing is marked
+  completed, and a task you already finished stays finished. `/clear` keeps the
+  claim, because the session itself is still running.
+- **Steering reaches you.** A message sent with `send_agent_message` waits in
+  the task's queue. On Claude Code and Codex, the next prompt you submit reminds
+  the agent to pick it up with `update_progress`.
+
+This pairs naturally with [local missions](/docs/features/missions#executor-runner-or-local):
+claim each task from your session, and closing the session gives back anything
+you didn't finish.
+
+## Install
+
+### With the buildd CLI (recommended)
+
+Installs the hooks and skill for every client it detects. No credential is
+written into any hook file; the hooks read the key `buildd login` stored.
+
+```bash
+buildd login
+buildd install --global          # or `buildd install` inside one repo
+buildd install --status --global # see what is installed
+buildd install --uninstall --global
+```
+
+Uninstall removes only buildd's own hook handlers. Your other hooks and
+settings are left as they were.
+
+### As a Claude Code plugin
+
+```bash
+export BUILDD_API_KEY=bld_your_api_key
+claude plugin marketplace add buildd-ai/buildd
+claude plugin install buildd@buildd
+```
+
+<Callout type="warn">
+Pick one route. The plugin brings its own MCP entry, so don't also keep a
+`buildd` MCP server from `buildd install --global` in `~/.claude.json`.
+</Callout>
+
+### Client notes
+
+- **Codex** asks you to trust each new hook before it runs. Review them with
+  `/hooks` after installing; buildd does not pre-trust them. Add the MCP server
+  with the `codex mcp add` command the installer prints.
+- **Cursor** resolves project hook commands from the project root. The CLI
+  writes absolute paths, so prefer it to copying hook files by hand. Add the
+  MCP server under Settings → MCP.
+
+## What the hooks send
+
+Four events, and nothing else: `start`, `touch` (at most once a minute),
+`bind` (after your own `claim_task` succeeds) and `end`. Each carries the
+client name, a session id, the client version where the client reports one, and the repo as `owner/name`.
+Credentials and host are stripped from the remote URL before it leaves your
+machine.
+
+The hooks never send prompts, responses, reasoning, transcripts, tool output
+or secrets, and buildd rejects any event carrying an extra field. The session
+id is stored only as a hash.
+
+The hooks always fail open. If buildd is down, slow, or you aren't logged in,
+the hook exits quietly within a few seconds and your session carries on.
+
+## Client support
+
+| | Claude Code | Codex | Cursor |
+|---|---|---|---|
+| Install | plugin, or `buildd install` | `buildd install` | `buildd install` |
+| Session end | on exit; `/clear` keeps the claim | every end is treated as exit | only closing the window or chat ends it |
+| Subagents | share the parent session | share the parent session | share the conversation |
+| Steering reminder | on your next prompt | on your next prompt | read on the next `update_progress` |
+
+If a session crashes without sending `end`, it reads Offline after about ten
+minutes, and its task is released by the normal idle timeout for interactive
+sessions.
+
+## Configuration
+
+| Variable | Effect |
+|---|---|
+| `BUILDD_API_KEY`, `BUILDD_SERVER` | Override the key and server from `~/.buildd/config.json` |
+| `BUILDD_HOOKS_DISABLED=1` | Turn the hooks off (MCP only) |
+| `BUILDD_HOOK_DEBUG=1` | Log hook decisions to stderr |
+
+Without the hooks, everything still works over MCP alone. buildd just doesn't
+see your session until it claims a task.
