@@ -18,7 +18,9 @@ buildd that the session exists.
 
 - **Presence without a slot.** An open session shows under **Activity →
   Interactive sessions** as Working, Online, Offline or Ended, with its client
-  and repo. Presence never counts against your agent capacity.
+  and repo. Presence never counts against your agent capacity. A scripted run
+  nobody is attending (`claude -p`, an SDK script, a Cursor background agent)
+  isn't listed unless it claims a task.
 - **Claims tie to the session.** When your session calls `claim_task`, buildd
   links the session to the worker that claim created. The task then shows the
   client it runs in (for example "Claude Code · local") where a runner name
