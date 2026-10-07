@@ -156,6 +156,7 @@ With `executor: "local"`:
 - Runners never auto-claim the mission's tasks.
 - You claim each one explicitly and interactively — `claim_task { taskId: "<task-id>" }` from your own session — which gives you a normal tracked worker: the same PR link and cost accounting a runner-claimed task gets. Finish it the usual way, with `complete_task`.
 - The dashboard tags the mission `[LOCAL]`, and a task under it shows "Running in a local session" instead of offering to start it on a runner. "Force start" still hands that one task to a runner if you'd rather it ran there.
+- With the [agent plugin](/docs/integrations/agent-plugin) installed, your session shows in buildd while it's open, and closing it releases any task you didn't finish back to the queue.
 
 `executor` is independent of `startMode`: `held` is a pause that blocks every
 claim, interactive sessions included, and wins over `executor` when both are
