@@ -9,13 +9,34 @@ Teams are the top-level organizational unit in Buildd. All resources — workspa
 
 ## Roles
 
-| Role | Permissions |
-|------|-------------|
-| **Owner** | Full access. Manage billing, delete team, transfer ownership. |
-| **Admin** | Manage workspaces, accounts, skills, and team members. Invite new members. |
-| **Member** | View workspaces and tasks. Cannot manage team settings or invite members. |
+Every member of a team holds one role.
 
-Every team has exactly one owner (the creator). Admins and members can be added via invitations.
+| Role | Can do by default |
+|------|-------------|
+| **Owner** | Everything. Only owners delete the team, manage billing, change the team's permission settings, and make, remove or demote other owners. |
+| **Admin** | Manage members (between member and admin), invitations, team settings, API keys, credentials, workspaces, connectors, agent roles and releases. |
+| **Member** | Work in the team's workspaces, create personal agent roles, and leave the team. |
+
+A team always has at least one owner. The creator starts as the owner. Owners can add more.
+
+### Changing roles
+
+- Admins can move people between **member** and **admin**. Only an owner can make someone an owner, or change or remove an existing owner.
+- An owner can **transfer ownership** to another member: that member becomes an owner and the previous owner becomes an admin.
+- Any member can **leave** a team, except from their personal team and except the last owner. Transfer ownership first.
+- Nobody can demote or remove the team's last owner.
+
+### API keys follow the person who made them
+
+When someone's role drops, or they are removed or leave, the API keys they created in that team drop to what their new role may create. An admin-level key becomes worker-level and its admin scopes are removed. Keys aren't deleted. Keys with no recorded creator are left unchanged. Members can always delete keys they created themselves.
+
+### Customising permissions
+
+Owners can change which roles hold each permission in **Settings → Team**. For example, an owner can let members manage connectors, or make releases owner-only. Owners always keep every permission. A few permissions can't be changed: deleting the team, billing, editing these settings, and making owners. Permission changes apply to people signed in to the dashboard. API keys keep acting at their own level.
+
+### Personal agent roles
+
+Any member can create an agent role **just for themselves** from the Team page. A personal role runs only on its owner's tasks and is invisible to everyone else until its owner shares it with the team. Once shared, everyone can use it, and an admin can turn it into a regular team role.
 
 ## Team Resources
 
@@ -32,7 +53,7 @@ Team admins and owners can invite new members by email:
 
 1. Admin sends invitation with a role (`admin` or `member`)
 2. Invitee receives a unique invitation token
-3. Invitee accepts the invitation to join the team
+3. Invitee accepts the invitation to join the team. They must be signed in with the email address the invitation was sent to
 4. Invitation expires if not accepted within the time limit
 
 Invitation statuses: `pending`, `accepted`, `expired`.
