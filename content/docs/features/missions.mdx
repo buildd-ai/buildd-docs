@@ -186,9 +186,11 @@ turns while waiting, and exits when you answer. The session then reads your
 answer with `await_answer { waitSeconds: 0 }`. A client without background
 commands calls `await_answer` in a loop instead, up to 45 seconds per call.
 
-- If the session stops waiting for more than about 5 minutes, or ends, before
-  you answer, your answer starts a follow-up task on a runner instead. The
-  task shows why.
+- If the session closes cleanly with the [agent plugin](/docs/integrations/agent-plugin)
+  installed, the question is withdrawn and the task goes back to pending.
+- If the session disappears without closing (a crashed or killed terminal) and
+  stops waiting for more than about 5 minutes, your answer starts a follow-up
+  task on a runner instead. The task shows why.
 - An unanswered question expires like any other: after 24 hours, or 4 hours
   inside a mission. The task then fails. It is retried only on an
   `executor: "local"` mission, so a runner never picks up work you meant to do
