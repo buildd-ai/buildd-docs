@@ -32,6 +32,10 @@ buildd that the session exists.
 - **Steering reaches you.** A message sent with `send_agent_message` waits in
   the task's queue. On Claude Code and Codex, the next prompt you submit reminds
   the agent to pick it up with `update_progress`.
+- **Questions reach you, wherever you are.** A session that needs a decision
+  calls `ask_human`. The question lands in **Needs you** with a push, and your
+  answer goes back to the same session. See [asking you a question from a local
+  session](/docs/features/missions#asking-you-a-question-from-a-local-session).
 
 This pairs naturally with [local missions](/docs/features/missions#executor-runner-or-local):
 claim each task from your session, and closing the session gives back anything
