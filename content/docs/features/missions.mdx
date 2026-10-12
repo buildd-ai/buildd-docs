@@ -163,6 +163,41 @@ claim, interactive sessions included, and wins over `executor` when both are
 set. Use `executor: "local"` for work you intend to drive yourself, and
 `startMode: "held"` for work nobody should touch yet.
 
+### Asking you a question from a local session
+
+When a session you claimed a task from hits a decision it can't make alone, it
+can ask you through buildd instead of only asking whoever is at that keyboard:
+
+```
+buildd action=ask_human params={
+  question: "Keep the v1 endpoint or remove it?",
+  options: ["Keep it", "Remove it"]
+}
+```
+
+The question appears in **Needs you** on the dashboard and on your phone, with
+the same push notification a runner's question sends, and any options show as
+buttons. Your answer goes back to the same session, which carries on where it
+stopped. No new task is created.
+
+While it waits, the session runs the `waitCommand` that `ask_human` returns as
+a background command. That command needs only `sh` and `curl`, uses no model
+turns while waiting, and exits when you answer. The session then reads your
+answer with `await_answer { waitSeconds: 0 }`. A client without background
+commands calls `await_answer` in a loop instead, up to 45 seconds per call.
+
+- If the session stops waiting for more than about 5 minutes, or ends, before
+  you answer, your answer starts a follow-up task on a runner instead. The
+  task shows why.
+- An unanswered question expires like any other: after 24 hours, or 4 hours
+  inside a mission. The task then fails. It is retried only on an
+  `executor: "local"` mission, so a runner never picks up work you meant to do
+  yourself.
+- For a question the session can work around with a sensible default, it
+  should use `post_note` with `type: "question"` instead. That doesn't stop
+  the work. Keep `ask_human` for decisions that are hard to undo or genuinely
+  ambiguous.
+
 ## Goal Criteria
 
 `goalCriteria` are completion gates that **block** the mission from closing until

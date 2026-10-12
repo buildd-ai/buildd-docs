@@ -149,6 +149,8 @@ A `worker` token gets everything above, plus:
 | `get_usage_stats` | `window?`, `groupBy?` | Tokens / cost / turns per task |
 | `spec_compare` | `feature`, `topK?` | Spec-drift check: code evidence vs spec evidence |
 | `post_note` | `type`, `title`, `body?` | Post a note to the current task or mission |
+| `ask_human` | `question`, `options?`, `context?`, `workerId?` | From a session that claimed its task with `claim_task`: stop and ask the task's owner a blocking question. It shows in **Needs you** and sends the usual push. Returns a `waitCommand` to run in the background while you wait. See [Asking you a question](/docs/features/missions#asking-you-a-question-from-a-local-session) |
+| `await_answer` | `waitSeconds?` (0-45, default 40), `workerId?` | Read the answer to your `ask_human` question. Call it with `waitSeconds: 0` once `waitCommand` exits; without background commands, call it in a loop until it answers |
 | `suggest_schedule_update` | `reason`, `scheduleId?`, `cronExpression?`, `enabled?` | Propose a schedule change for human approval |
 | `list_connectors` | `workspaceId?` | Connectors mounted for this workspace, with health |
 | `list_releases` | `workspaceId?`, `missionId?`, `state?`, `limit?` | List releases |
@@ -220,6 +222,7 @@ An `admin` token gets everything above, plus:
 | `trigger_release` | `workspaceId?` / `repo?`, `ref?`, `inputs?` | Trigger a release |
 | `release_status` | `workspaceId?` / `repo?`, `ref?`, `prodBranch?` | Read-only release preflight |
 | `send_agent_message` | `taskId`, `message`, `priority?` | Deliver a mid-flight steering message to a running agent |
+| `answer_question` | `taskId`, `message` | Answer the question a task's agent is waiting on, the same as answering from the dashboard. `send_agent_message` can't do this, because a waiting agent never reads its queue |
 | `consolidate_knowledge` | `op` (find_duplicates/find_decayed/archive), `corpora?`, `threshold?` | Review near-duplicate or decayed knowledge entries, or archive a batch |
 | `memory_delete` | `id` | Permanently remove a memory. Prefer `learn` with `supersedes` |
 
