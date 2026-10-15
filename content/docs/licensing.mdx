@@ -5,9 +5,9 @@ description: How buildd is licensed, what you can do with it, and how to contrib
 
 # Licensing
 
-buildd is **source-available** under the Functional Source License, Version 1.1, Apache 2.0 Future License (FSL-1.1-ALv2), a Fair Source license. It covers the product: `apps/` and `@buildd/core` in [buildd-ai/buildd](https://github.com/buildd-ai/buildd).
+buildd is **source-available** under the Functional Source License, Version 1.1, Apache 2.0 Future License (FSL-1.1-ALv2), a Fair Source license. It covers buildd's server (dashboard, API, control plane) in [buildd-ai/buildd](https://github.com/buildd-ai/buildd).
 
-The contract packages are Apache-2.0 today. The paid offer is the hosted service at [buildd.dev](https://buildd.dev).
+The runner, ai-kit and the contract packages are Apache-2.0. The paid offer is the hosted service at [buildd.dev](https://buildd.dev).
 
 ## Can I self-host it for my own team?
 
@@ -25,8 +25,9 @@ No, not during the two-year window. The license allows any use except offering a
 
 Two years after that release ships. Each release converts on its own date.
 
-## Which packages are Apache-2.0 now?
+## What is Apache-2.0 now?
 
+- The runner (`apps/runner`), which you install on your own machines
 - `@buildd/workflow-kernel`
 - `@buildd/spec-contract`
 - `@buildd/dispatch-contract`
