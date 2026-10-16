@@ -1,0 +1,26 @@
+name: Docs prose lint
+
+on:
+  pull_request:
+    paths:
+      - "content/docs/**/*.mdx"
+      - "content/docs/**/*.md"
+      - "scripts/lint-prose.mjs"
+      - ".github/workflows/docs-lint.yml"
+
+jobs:
+  lint-prose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Report-only: annotates per-file scores on the PR without failing
+      # the check. Remove continue-on-error once the baseline in README.md
+      # is clean enough to enforce the threshold.
+      - name: Lint prose
+        continue-on-error: true
+        run: node scripts/lint-prose.mjs --max 6
