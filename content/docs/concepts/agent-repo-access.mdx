@@ -46,27 +46,66 @@ When a task runs, buildd mints a GitHub token for **that run only**:
   granted, GitHub refuses a push that changes files under `.github/workflows/`.
   Workflow changes go to a person.
 
-Pull requests are opened through buildd (the `create_pr` action), not with a
-raw token. That way buildd's rules apply: which base branch a mission's PRs
-target, how duplicates are handled, and your workspace's merge policy.
+## The run's own buildd identity
+
+Each run also gets its own short-lived **buildd** token, so its calls to buildd
+(progress, PRs, artifacts, notes) carry the run's identity, not your runner's
+key. What that token reaches:
+
+| An agent run can | Only |
+|---|---|
+| Report progress, finish its task, save artifacts and notes | on its own task |
+| Read tasks, PRs, artifacts, runners, schedules, releases, stats and error traces | in its own task's workspace |
+| File a follow-up task | in its own workspace, and never into a mission other than its own |
+| Edit its task | title, description, priority and links. Status goes through `complete_task`, so the completion checks still run |
+
+Anything team-wide stays with people: workspaces, secrets, schedules, roles,
+releases, team settings and other missions. Notes an agent posts are always
+marked as written by an agent, never as a person's guidance.
+
+**Organizer, planning and check-in tasks** get the same kind of token at a
+higher level. It is still confined to their own mission: they can update that
+mission, approve or reject its plans, message its workers and file its tasks,
+and nothing outside it.
+
+## Pull requests
+
+PRs are opened through buildd (the `create_pr` action), not with a raw token,
+so buildd's rules apply: which base branch a mission's PRs target, how
+duplicates are handled, and your workspace's merge policy.
+
+An agent run records, closes or merges only a PR its task owns:
+
+- the PR from its own branch, or from an earlier attempt at the same task;
+- a PR the task names ("fix review comments on #42");
+- for an organizer, a PR from another task on its own mission.
+
+A PR from one of your protected branches (default or release) is never
+recorded as a task's work. Every merge still goes through your merge policy.
 
 ## Hosted vs self-hosted runners
-
-The run's token is the same in both cases. What differs is where it lives.
 
 | | Hosted runner (preview) | Self-hosted runner |
 |---|---|---|
 | Where the agent runs | An isolated container per task | Your machine |
-| GitHub token | Never enters the container. buildd adds it to the container's GitHub requests on the way out | Written where the agent's `git` and `gh` read it, so the agent process can read it |
-| Model credential | Never enters the container. It's added the same way | On the runner |
+| GitHub token | Never enters the container. buildd adds it to the container's GitHub requests on the way out | Written where the agent's `git` and `gh` read it |
+| Model credential | Never enters the container | On the runner |
+| buildd credential the agent uses | The run's own token | The run's own token, or the runner's key if a token can't be issued |
 | Credentials sent by the agent | Removed before the request leaves | Not inspected |
-| `git push` to your default or release branches | Refused | Not refused by buildd |
+| What the agent can push | Only its own task's branch (or its mission's shared branch), whether by `git push` or GitHub's API | Whatever the token allows. Protect branches with a ruleset |
 | Merging through GitHub's merge API | Refused. Merges go through buildd's merge policy | Not refused by buildd |
-| buildd credential inside the run | A token for this one task, usable only on that task's routes | The runner's API key |
 
-On a hosted runner, the agent can do its work without ever holding a broad
-credential. If its container is compromised, there is no GitHub or model secret
-inside to steal.
+On a hosted runner, the agent does its work without ever holding a broad
+credential. If its container is compromised, there is no GitHub, model or
+buildd key inside to steal.
+
+On a self-hosted runner, the agent runs as the same OS user as the runner, so
+it can read what that user can read, including the runner's own files. The run
+uses its own token for buildd and the runner keeps its key out of the agent's
+environment, but only operating-system isolation (the runner's sandbox mode,
+or a hosted runner) stops a hostile agent from reading the runner's files. Set
+`BUILDD_AGENT_TASK_TOKEN=0` on the runner to have agents use the runner's key
+instead, if you need to.
 
 <Callout type="info">
   Whichever runner you use, protect your default branch with a GitHub
@@ -74,6 +113,22 @@ inside to steal.
   that requires a pull request. GitHub enforces it on every push, including
   pushes made with the App's token.
 </Callout>
+
+## Seeing what a run was given
+
+buildd records every grant and refusal for a run: repo access, buildd tokens,
+model endpoints and PR actions. It never records the tokens themselves.
+
+- **Task page, Access:** what that task's runs were given and refused, in
+  order, with the reason for each refusal. It opens on its own when something
+  was refused.
+- **Health, Runners, Agent access:** runs that could not get the access they
+  need, with the fix (for example a suspended GitHub App installation or a
+  workspace with no linked repo), and what agents were refused, by reason.
+- **`explain` on a task:** includes the same history, so an agent or a person
+  can ask why something was refused.
+
+Records are kept for 90 days.
 
 ## Related
 
