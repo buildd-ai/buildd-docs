@@ -1,4 +1,4 @@
 {
   "title": "Getting Started",
-  "pages": ["runner", "codex-backend"]
+  "pages": ["runner", "codex-backend", "windows-wsl2"]
 }
