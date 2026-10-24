@@ -43,6 +43,14 @@ curl -fsSL https://buildd.dev/install.sh | bash
 buildd login
 ```
 
+On Windows, install from any shell (PowerShell, cmd or Git Bash), then open a
+new terminal so `buildd` is on your PATH:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://buildd.dev/install.ps1 | iex"
+buildd login
+```
+
 Restart Claude Code and the buildd tools will be available.
 
 To also show your session in buildd while it's open, and release its task when
