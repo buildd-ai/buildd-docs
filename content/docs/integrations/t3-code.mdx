@@ -1,0 +1,156 @@
+---
+title: Use buildd from T3 Code
+description: Run buildd tasks as T3 Code threads, or drive missions from T3's Claude provider
+---
+
+# Use buildd from T3 Code
+
+[T3 Code](https://t3.codes) can talk to buildd in two ways. Pick by what you want the thread to do.
+
+## Two providers
+
+### The buildd provider (ACP bridge)
+
+The **buildd provider** runs the `buildd-acp` command, an [Agent Client Protocol](https://agentclientprotocol.com) bridge to the runner already running on your machine. Each new thread becomes a buildd task that your runner runs, the same way it runs any task:
+
+- the task gets its own git worktree
+- the runner injects the task's secrets
+- the run ends with a pull request
+
+The bridge never runs a model itself. It reads the runner's worker state and relays your actions to it, the way `buildd top` does. Sandbox, budgets, roles and reporting back to buildd are unchanged.
+
+You can also open runs that already exist: choose **List sessions** on the provider's card, pick a project, and import a worker as a thread.
+
+### The orchestrator (T3's Claude provider + buildd MCP)
+
+The **orchestrator** is T3's built-in Claude provider with the buildd [MCP server](/docs/integrations/mcp-server) attached. The thread is a Claude session that uses buildd tools to create missions and tasks, check on them and review the results. It does not run the work itself.
+
+### Which to use
+
+| You want to | Use |
+|---|---|
+| Hand one piece of work to your runner and watch it in a thread | buildd provider |
+| Pick up, answer, steer or stop a run that is already going | buildd provider |
+| Plan and manage missions and many tasks | Orchestrator |
+| Have the orchestrator start child threads that run on your runner | Both: the orchestrator delegates, the buildd provider runs the child thread |
+
+Mapping a T3 project or thread to a mission automatically is coming. For now, an orchestrator names the mission when it starts a thread; see [Starting a thread in a mission](#starting-a-thread-in-a-mission).
+
+## Setup
+
+You need a buildd runner on the machine where the work should happen. See [Runner Setup](/docs/getting-started/runner). The runner must be running: the bridge only talks to it.
+
+Add the provider in T3 Code under **Settings → Providers → Add provider → Show more → Local ACP command**. The runner writes a launcher called `buildd-acp` to `~/.local/bin` when it starts, so the executable is `buildd-acp` with no arguments, or its full path if `~/.local/bin` is not on the `PATH` T3 sees.
+
+### Local: T3 and the runner on one machine
+
+Set the executable to `buildd-acp`. Open a thread inside a project folder; the folder's name and its GitHub `origin` decide which buildd workspace the task goes to.
+
+### SSH: runner on a remote host
+
+T3 runs the bridge over SSH, so the executable is `ssh` and the arguments run the launcher on the host:
+
+```text
+ssh <host> /home/<you>/.local/bin/buildd-acp
+```
+
+Use the launcher's full path. A non-interactive SSH command often does not read your shell profile, so a bare `buildd-acp` may not be found. See [Troubleshooting](#troubleshooting).
+
+Two things to know about this setup:
+
+- **T3 shows the thread under your local project.** The work runs on the host. T3's diff panel shows your local checkout, which the task never touched. Changes are on the task's branch and in its pull request.
+- **The first message says where the run is.** When the folder T3 sends does not exist on the runner, the thread starts with "Started a buildd task in `<workspace>`: “`<title>`” · `<role>` on `<model>`, on runner `<name>`, not this machine. Changes will be on branch `<branch>` and in its PR, not in your checkout."
+
+### On-host T3: T3 server on the runner host
+
+Run the T3 server on the same host as the runner and the thread's environment matches the run: T3's project, diffs and paths line up with the worktree. This is the preferred setup when you have a choice, and the one orchestrators use when they start a child thread in the runner machine's own T3 environment.
+
+With the runner in WSL beside Windows (see [Windows with WSL2](/docs/getting-started/windows-wsl2)) and T3 on the Windows side, launch the bridge through `wsl.exe`:
+
+| Executable | Arguments |
+|---|---|
+| `wsl.exe` | `-e`, `/home/<you>/.local/bin/buildd-acp` |
+
+Windows paths such as `C:\Users\you\project` are mapped to `/mnt/c/...` when the bridge checks whether the folder exists.
+
+## Secrets
+
+- **The bridge needs no token.** It talks to the runner's owner-only local socket, so there is no buildd key to put in T3's provider settings.
+- **Model credentials stay on the runner machine.** Claude or Codex login happens where the runner is, and T3 never sees it.
+- **Task secrets are injected by the runner** into the run, as they are for any buildd task.
+- **The orchestrator uses a buildd key or OAuth.** `bld_` keys authenticate you to buildd. They are not model billing and don't carry a model login. See [MCP Server](/docs/integrations/mcp-server) for the options.
+
+Never paste keys, tokens or `.env` contents into a thread. A thread is stored by T3 and its text becomes the task description. Add secrets to the workspace in buildd instead.
+
+## Follow-ups and commands
+
+What you type in an existing thread goes where the run needs it:
+
+| Run is | Your reply |
+|---|---|
+| Waiting on a question or permission | Answers it |
+| Working | Steers it |
+| Finished, failed, stale or paused | Starts a follow-up that resumes the run's session |
+
+When the run asks a question mid-turn and T3 can show a form, it appears as one with the run's options. If you dismiss the form, the next thing you type answers it. An answer is only sent while that same question is still open, so one already answered in the dashboard is not sent twice.
+
+| Command | Effect |
+|---|---|
+| `/watch` | Follow the run without sending anything |
+| `/pause` | Pause at the next safe point |
+| `/stop` | Stop the run |
+
+Commands count only when they are the whole message. Pressing T3's stop button on a running turn **pauses** the run, it does not stop it. Reply in the thread to resume.
+
+A turn ends when the run stops working: a question, "Finished." with the PR link, an error, or "This run went stale. Reply to continue it." Costs shown are list price for plan usage, not a bill. If the runner does not pick up your reply within about 30 seconds, the turn ends with "The runner hasn't picked up your reply yet." The reply is still delivered; use `/watch`.
+
+### What the first message does
+
+The first message in a new thread becomes the task: its first line is the title and the whole text is the description. T3's own wrapper text around your message is dropped.
+
+The bridge files the task in the workspace whose repo matches the project folder. The task is **reserved for your runner's account for 20 minutes**, then claimed onto this runner, so no other runner can take it in between. If the claim is refused, the task stays held for your runner until the 20 minutes pass, then any runner can take it. The thread says why it was refused so you can fix it, for example by freeing a slot. The task page shows the task came "from T3 Code".
+
+### Starting a thread in a mission
+
+A delegating client can begin the first message with a directive line to put the task in a mission:
+
+```text
+buildd: mission=<id or short id> role=<slug> priority=<n> kind=<kind>
+```
+
+Any subset works. The line is removed from the title and description. If the server refuses the mission (not your team's, or missing), no task is created and the thread shows the error.
+
+## Troubleshooting
+
+| What you see | What it means | Fix |
+|---|---|---|
+| "runner refused /api/workers …", "Could not read your buildd workspaces: …", or a connection error | The runner is not running on the machine the bridge reached | Start the runner there, then retry |
+| "This thread has no project folder, so buildd cannot tell which workspace the task is for." | The thread was opened without a folder | Open the thread inside a project folder |
+| "This runner does not work on `<owner/name>` yet. Open this to connect …" | No workspace on your runner matches the repo | Open the link while signed in to buildd. It connects the repo to a workspace and this runner. Then send your message again; no restart needed |
+| "buildd works on GitHub repos, and this folder has no GitHub remote (origin) …" | The folder has no GitHub `origin` | Add a GitHub remote, or use a T3 Claude or Codex thread in this folder |
+| "This folder matches more than one buildd workspace (…)" | Several workspaces fit the folder | Send the message again and pick one, or start the task from buildd |
+| "buildd did not create the task. The runner refused that (`<status>`): `<reason>`." | The server or runner rejected the new task | Fix the cause named, then resend |
+| "Created the buildd task … It is held for this runner for 20 minutes, then any runner can take it: this runner could not take it now." | The task exists and is reserved for you, but this runner could not claim it, for example no free slot | Fix the limit named in the message. The task stays queued for your runner for 20 minutes, then is open to any runner |
+| "The runner refused that (`<status>`)." | An action (answer, pause, stop) was refused, often because the run moved on | Read the reason and check the run with `/watch` |
+| "This worker is no longer on this runner." or error `-32602` "worker `<id>` is not on this runner" | The run you opened belongs to a different runner | Reopen it from **List sessions** on the runner that owns it |
+| "This thread has no buildd task yet. Describe the work and send it…" | You sent a command or empty text in a new thread | Describe the work and send it |
+| "The runner hasn't picked up your reply yet." | The runner showed no movement for about 30 seconds | The reply will still be delivered. Use `/watch` |
+| "buildd acp does not support `<method>`" (`-32601`) | T3 called something the bridge doesn't offer | Nothing to do; the feature isn't offered by this provider |
+
+### The launcher says it was installed before `buildd acp` existed
+
+The message "this buildd launcher was installed before `buildd acp` existed and cannot pass the protocol through" means T3 ran an old `buildd` launcher. Switch the provider's executable to `buildd-acp`, which the runner writes on startup. If you can't, run the bridge directly: executable `bun`, arguments `run` and `~/.buildd/apps/runner/src/acp/main.ts` (use the full path to `bun` and the file over SSH or `wsl.exe`).
+
+The `buildd-acp` launcher is only written by an installed runner, never from a development checkout, and it is not written on Windows. On Windows, run the runner in WSL.
+
+### `buildd-acp: command not found` over SSH
+
+Commands that SSH runs without a terminal don't read the profile files that add `~/.local/bin` to `PATH`. Use the launcher's full path in the SSH arguments, as in the example above. The launcher runs `bun` by its own absolute path, so it needs nothing else on `PATH`.
+
+### Provider shows no sessions or the wrong ones
+
+**List sessions** filters by the project folder: the exact path, then its git worktree root, then the folder or `origin` repo name against the workspace name. A thread you started appears under its own thread, not as a second copy of the worker. If a project shows nothing, check you picked the folder of the repo and that the run's workspace is on this runner.
+
+### Threads after a restart
+
+The bridge saves which thread belongs to which run in `acp-sessions.json` in the runner's home folder (ids only, newest 1,000). After a restart, a message in an old thread goes to its run and does not create a second task.
