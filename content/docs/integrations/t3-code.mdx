@@ -108,7 +108,20 @@ A turn ends when the run stops working: a question, "Finished." with the PR link
 
 The first message in a new thread becomes the task: its first line is the title and the whole text is the description. T3's own wrapper text around your message is dropped.
 
-The bridge files the task in the workspace whose repo matches the project folder. The task is **reserved for your runner's account for 20 minutes**, then claimed onto this runner, so no other runner can take it in between. If the claim is refused, the task stays held for your runner until the 20 minutes pass, then any runner can take it. The thread says why it was refused so you can fix it, for example by freeing a slot. The task page shows the task came "from T3 Code".
+The bridge files the task in the workspace whose repo matches the project folder. The task is **reserved for your runner's account for 20 minutes**, then claimed onto this runner, so no other runner can take it in between. If the claim is refused, the task stays held for your runner until the 20 minutes pass, then any runner can take it. The thread says why it was refused so you can fix it, for example by freeing a slot. The task page shows the task came "from T3 Code", and the live reservation while it is held.
+
+### Updates from tasks filed in a thread
+
+A task filed from a thread remembers that thread. As it progresses, buildd's notes about it show up in the thread:
+
+| Note | When |
+|---|---|
+| Started | A worker has begun the task |
+| Waiting for you | The run asked a question and is still waiting. An answered question is not repeated |
+| PR opened | The pull request exists; the note carries its link |
+| Finished or failed | The run ended |
+
+Each note is one short line naming the task. Notes appear at the start of the thread's **next** message, because T3 gives the bridge no way to post into a thread between turns. A thread nobody writes to again shows nothing until someone does. Each note appears once, including after a restart. Checks and reviews after the PR opens are not relayed; T3 watches the PR itself.
 
 ### Starting a thread in a mission
 

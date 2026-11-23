@@ -97,6 +97,12 @@ just chat:
 Members add their own key under **Account → Profile**. A personal key only ever
 pays for its owner's calls.
 
+## When a subscription hits its usage limit
+
+When a runner's Claude or Codex login hits a session, weekly or extra-usage limit, the task waits for the reset time the provider quotes and then continues on the same branch by itself. It does not use up a retry, fail the task or page anyone. The task page reads "Waiting for the usage limit to reset at the quoted time", and the runner shows the same.
+
+A team can instead let a walled subscription runner continue on a stored credential. An admin sets this under **Settings → Providers**, and it only offers credentials the team has already stored. Work pinned to a subscription is never moved, and a daily spend cap on fallback runs applies; once it is reached, tasks wait for the reset. Runners that use an API key are unaffected.
+
 ## Budgets
 
 **Team → Budgets** shows spend split into **Interactive** and **Agent runs**,

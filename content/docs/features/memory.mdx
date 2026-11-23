@@ -229,6 +229,41 @@ Several small judgment calls inside memory — is this worth keeping, which type
 Setting the environment variable `MEMORY_DECISIONS_DISABLED=1` on the buildd deployment turns **every** row in that table off at once — every decision reverts to its pre-Jev rule, team-wide. There's no per-workspace version of this switch.
 </Callout>
 
+## Embeddings and code ingest
+
+Retrieval ranks by meaning (embeddings) as well as by words. Where those embeddings come from, and which repo content is embedded at all, are both settings you control.
+
+### Embedding provider and model
+
+A team picks which provider and model embeds its knowledge under **Settings → Providers → Used for → Embeddings**. The choice is one more use of a provider the team already connected, so there is no separate embedding key.
+
+| Provider | Notes |
+|---|---|
+| Voyage | The default when nothing is picked |
+| OpenRouter | Uses the team's stored OpenRouter key |
+| OpenAI | Uses the team's stored OpenAI key |
+| LiteLLM | Your own gateway. This is also how you point buildd at a self-hosted embedding endpoint |
+
+- A workspace's own stored credential for the provider wins over the team's.
+- If the picked provider has no usable key, retrieval falls back to lexical (word) matching and nothing errors.
+- Reranking stays on Voyage and is skipped when it is not available.
+- Changing the model re-embeds files the next time they are ingested. Vectors from different models are never mixed in one search.
+
+Self-hosters can set a default for the whole deployment with environment variables; a team's pick overrides it. See [Self-Hosting](/docs/deployment/self-hosting).
+
+### What gets ingested
+
+Each workspace has two switches under **Workspace settings → Repository**:
+
+| Switch | Effect when off |
+|---|---|
+| **Knowledge ingest** | Nothing from the repo is fetched or embedded: no `code`, `docs`, `spec` or pull request diff content |
+| **Embed code** | Only the `code` corpus stops. Docs, specs and pull request diffs still ingest, and the code graph is skipped |
+
+Turning either off never deletes what is already stored. Use the purge option on the same settings to remove stored `code`, `docs` and pull request chunks. Turning a switch back on queues a fresh full ingest of the linked repo. No code index is kept when **Embed code** is off, so `recall` with `scope="code"` returns nothing for that workspace; agents read file paths from the checkout.
+
+New workspaces created through the API start with **Embed code** off unless the request turns it on. Existing workspaces keep their current behavior.
+
 ## MCP Tools
 
 Memory is exposed through the buildd MCP server. See the [MCP Server](/docs/integrations/mcp-server) page for setup. In a workspace whose data class is `sensitive`, none of the three are registered and memory reads and writes are unavailable.
