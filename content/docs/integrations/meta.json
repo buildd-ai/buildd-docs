@@ -1,4 +1,9 @@
 {
   "title": "MCP & Integrations",
-  "pages": ["mcp-server", "agent-plugin", "github-actions"]
+  "pages": [
+    "mcp-server",
+    "t3-code",
+    "agent-plugin",
+    "github-actions"
+  ]
 }
